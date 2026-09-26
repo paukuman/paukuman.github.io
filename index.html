@@ -1673,12 +1673,14 @@
     ud.leftArm.shoulder.rotation.x = armSwing * airLift + jumpArmUp * jump;
     ud.rightArm.shoulder.rotation.x = armSwingB * airLift + (jumpArmUp * 0.95) * jump;
 
-    // Arm out — always slight, more when running/jumping
-    ud.leftArm.shoulder.rotation.z = 0.10 + run * 0.15 + jump * 0.5;
-    ud.rightArm.shoulder.rotation.z = -0.10 - run * 0.15 - jump * 0.5;
+    // Arm-away-from-body: 0 when fully idle (arms rest against sides),
+    // easing out a little as movement starts, more as it builds toward a full run.
+    const armOut = run * run; // eases in gently at low run, grows faster near full speed
+    ud.leftArm.shoulder.rotation.z = armOut * 0.32 + jump * 0.5;
+    ud.rightArm.shoulder.rotation.z = -(armOut * 0.32 + jump * 0.5);
 
-    // Elbow bend
-    const elbowBend = -(0.20 + run * 0.55 + jump * 0.35);
+    // Elbow bend — stays near-straight at idle, bends more as pace picks up
+    const elbowBend = -(run * 0.65 + jump * 0.35);
     ud.leftArm.elbow.rotation.x = elbowBend;
     ud.rightArm.elbow.rotation.x = elbowBend;
 
@@ -1686,8 +1688,8 @@
     const bob = Math.abs(Math.sin(phase * 2)) * 0.035 * run + breath;
     ud.bodyRoot.position.y = bob;
 
-    // Lean forward when running
-    ud.bodyRoot.rotation.x = run * 0.12 + jump * 0.10;
+    // Lean forward — noticeably more hunched at a full run than a light jog
+    ud.bodyRoot.rotation.x = run * run * 0.22 + jump * 0.10;
 
     // Head bob slightly
     ud.headGroup.rotation.x = -run * 0.08 - jump * 0.15;
