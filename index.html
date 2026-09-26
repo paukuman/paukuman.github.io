@@ -1,0 +1,2296 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>3D World Demo — Anime Character</title>
+<style>
+  :root {
+    --panel-bg: rgba(20, 24, 20, 0.78);
+    --panel-border: rgba(255,255,255,0.12);
+    --text: #eef2ea;
+    --text-dim: #9aa89a;
+    --accent: #7fd88f;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: #0d1210; overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  #canvas-wrap { position: absolute; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+  #hud {
+    position: absolute; top: 12px; left: 12px;
+    color: var(--text-dim); font-size: 12px;
+    background: var(--panel-bg); border: 1px solid var(--panel-border);
+    padding: 8px 12px; border-radius: 10px;
+    pointer-events: none; line-height: 1.6;
+    backdrop-filter: blur(6px);
+  }
+  #hud b { color: var(--text); }
+  #fpsRow { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--panel-border); }
+  #fpsVal { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  #panelToggle {
+    position: absolute; top: 12px; right: 12px; z-index: 20;
+    width: 40px; height: 40px; border-radius: 10px;
+    background: var(--panel-bg); border: 1px solid var(--panel-border);
+    color: var(--accent); font-size: 20px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; user-select: none;
+    backdrop-filter: blur(6px);
+    transition: transform 0.15s, background 0.15s;
+  }
+  #panelToggle:hover { background: rgba(127,216,143,0.18); transform: scale(1.05); }
+  #panelToggle.active { background: rgba(127,216,143,0.28); }
+
+  #panel {
+    position: absolute; top: 60px; right: 12px; z-index: 15;
+    width: 280px; max-width: calc(100vw - 24px);
+    background: var(--panel-bg); border: 1px solid var(--panel-border);
+    border-radius: 12px; padding: 12px 14px;
+    color: var(--text); font-size: 13px;
+    backdrop-filter: blur(8px);
+    max-height: calc(100vh - 72px); overflow-y: auto;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  #panel.hidden { opacity: 0; transform: translateX(20px); pointer-events: none; }
+  #panel h1 {
+    font-size: 13px; margin: 0 0 10px; font-weight: 600;
+    letter-spacing: 0.02em; color: var(--accent);
+  }
+
+  details {
+    margin-bottom: 6px;
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 0 10px;
+    background: rgba(0,0,0,0.15);
+  }
+  details > summary {
+    cursor: pointer; padding: 8px 0; font-size: 12px;
+    color: var(--accent); font-weight: 600; user-select: none;
+    list-style: none; outline: none;
+  }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary::before {
+    content: '▸'; display: inline-block; margin-right: 6px;
+    transition: transform 0.15s; color: var(--text-dim);
+  }
+  details[open] > summary::before { transform: rotate(90deg); }
+  details > .section-body { padding-bottom: 8px; }
+  details details { margin: 4px 0 8px 0; background: rgba(0,0,0,0.2); }
+
+  .row { margin-bottom: 10px; }
+  .row label {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--text-dim); margin-bottom: 4px;
+  }
+  .row label span.val { color: var(--text); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); height: 16px; }
+  .toggle-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 8px; font-size: 12px; color: var(--text-dim);
+  }
+  .toggle-row input { accent-color: var(--accent); width: 16px; height: 16px; }
+  hr { border: none; border-top: 1px solid var(--panel-border); margin: 10px 0; }
+
+  #loading {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--text-dim); font-size: 13px; background: #0d1210; z-index: 10;
+  }
+  #errbox {
+    position: absolute; bottom: 12px; left: 12px; right: 12px;
+    color: #ffb3b3; font-size: 11px; background: rgba(60,0,0,0.7);
+    border: 1px solid rgba(255,80,80,0.4); border-radius: 8px;
+    padding: 8px 10px; display: none; z-index: 50;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    max-height: 120px; overflow-y: auto; white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+<div id="canvas-wrap"><div id="loading">Menyiapkan dunia 3D...</div></div>
+
+<div id="errbox"></div>
+
+<div id="hud">
+  <div id="hudPlayer">
+    <div><b>WASD/Panah</b>: jalan (ikut kamera)</div>
+    <div><b>Spasi</b>: loncat</div>
+    <div><b>Drag layar</b>: putar kamera</div>
+    <div><b>Scroll/pinch</b>: zoom</div>
+  </div>
+  <div id="fpsRow"><b>FPS</b>: <span id="fpsVal">--</span></div>
+</div>
+
+<div id="touchControls" style="display:block; position:absolute; inset:0; pointer-events:none; z-index:5;">
+  <div id="joystickZone" style="position:absolute; left:20px; bottom:20px; width:120px; height:120px; border-radius:50%; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); pointer-events:auto; touch-action:none;">
+    <div id="joystickThumb" style="position:absolute; left:35px; top:35px; width:50px; height:50px; border-radius:50%; background:rgba(255,255,255,0.35); border:1px solid rgba(255,255,255,0.5);"></div>
+  </div>
+  <button id="jumpBtn" style="position:absolute; right:24px; bottom:32px; width:70px; height:70px; border-radius:50%; background:rgba(127,216,143,0.35); border:1px solid rgba(255,255,255,0.5); color:#eef2ea; font-size:12px; font-weight:600; pointer-events:auto; touch-action:none;">LONCAT</button>
+</div>
+
+<div id="panelToggle" class="active" title="Sembunyikan/tampilkan pengaturan">⚙</div>
+
+<div id="panel">
+  <h1>Pengaturan scene</h1>
+
+  <details open>
+    <summary>Post-processing</summary>
+    <div class="section-body">
+      <div class="toggle-row">
+        <span>Post-processing aktif</span>
+        <input type="checkbox" id="togglePost" checked>
+      </div>
+      <details>
+        <summary>SSAO</summary>
+        <div class="section-body">
+          <div class="toggle-row">
+            <span>Aktifkan SSAO</span>
+            <input type="checkbox" id="toggleSSAO" checked>
+          </div>
+          <div class="row">
+            <label>Radius SSAO <span class="val" id="ssaoRadiusVal">0.10</span></label>
+            <input type="range" id="ssaoRadius" min="0.01" max="2" step="0.01" value="0.1">
+          </div>
+          <div class="row">
+            <label>Kekuatan SSAO <span class="val" id="ssaoStrengthVal">0.30</span></label>
+            <input type="range" id="ssaoStrength" min="0" max="2" step="0.01" value="0.3">
+          </div>
+        </div>
+      </details>
+      <details>
+        <summary>Bloom</summary>
+        <div class="section-body">
+          <div class="toggle-row">
+            <span>Aktifkan bloom</span>
+            <input type="checkbox" id="toggleBloom" checked>
+          </div>
+          <div class="row">
+            <label>Kekuatan bloom <span class="val" id="bloomStrengthVal">0.10</span></label>
+            <input type="range" id="bloomStrength" min="0" max="3" step="0.01" value="0.1">
+          </div>
+          <div class="row">
+            <label>Radius bloom <span class="val" id="bloomRadiusVal">0.50</span></label>
+            <input type="range" id="bloomRadius" min="0" max="2" step="0.01" value="0.5">
+          </div>
+          <div class="row">
+            <label>Threshold bloom <span class="val" id="bloomThresholdVal">0.10</span></label>
+            <input type="range" id="bloomThreshold" min="0" max="1" step="0.01" value="0.1">
+          </div>
+        </div>
+      </details>
+      <details>
+        <summary>Godrays (sunrays)</summary>
+        <div class="section-body">
+          <div class="toggle-row">
+            <span>Aktifkan godrays</span>
+            <input type="checkbox" id="toggleGodrays" checked>
+          </div>
+          <div class="row">
+            <label>Intensitas <span class="val" id="godraysIntensityVal">0.50</span></label>
+            <input type="range" id="godraysIntensity" min="0" max="3" step="0.01" value="0.5">
+          </div>
+          <div class="row">
+            <label>Opacity <span class="val" id="godraysOpacityVal">0.03</span></label>
+            <input type="range" id="godraysOpacity" min="0" max="1" step="0.01" value="0.03">
+          </div>
+          <div class="row">
+            <label>Decay <span class="val" id="godraysDecayVal">0.95</span></label>
+            <input type="range" id="godraysDecay" min="0.8" max="0.99" step="0.01" value="0.95">
+          </div>
+          <div class="row">
+            <label>Weight <span class="val" id="godraysWeightVal">0.10</span></label>
+            <input type="range" id="godraysWeight" min="0" max="1" step="0.01" value="0.1">
+          </div>
+          <div class="row">
+            <label>Threshold <span class="val" id="godraysThresholdVal">0.60</span></label>
+            <input type="range" id="godraysThreshold" min="0.3" max="1" step="0.01" value="0.6">
+          </div>
+        </div>
+      </details>
+    </div>
+  </details>
+
+  <details open>
+    <summary>Bayangan &amp; Matahari</summary>
+    <div class="section-body">
+      <div class="toggle-row">
+        <span>Aktifkan bayangan</span>
+        <input type="checkbox" id="toggleShadow" checked>
+      </div>
+      <div class="row">
+        <label>Kekuatan bayangan <span class="val" id="shadowStrengthVal">2.00</span></label>
+        <input type="range" id="shadowStrength" min="0" max="2" step="0.05" value="2">
+      </div>
+      <div class="row">
+        <label>Kualitas shadow <span class="val" id="shadowQualVal">Ultra</span></label>
+        <input type="range" id="shadowQuality" min="0" max="2" step="1" value="2">
+      </div>
+      <div class="row">
+        <label>Kelembutan shadow <span class="val" id="shadowSoftVal">8</span></label>
+        <input type="range" id="shadowSoft" min="0" max="8" step="1" value="8">
+      </div>
+      <hr>
+      <div class="row">
+        <label>Ketinggian matahari <span class="val" id="sunHeightVal">45°</span></label>
+        <input type="range" id="sunHeight" min="10" max="85" step="1" value="45">
+      </div>
+      <div class="row">
+        <label>Arah matahari <span class="val" id="sunAngleVal">30°</span></label>
+        <input type="range" id="sunAngle" min="0" max="360" step="1" value="30">
+      </div>
+      <div class="row">
+        <label>Ukuran matahari <span class="val" id="sunSizeVal">0.75</span></label>
+        <input type="range" id="sunSize" min="0.3" max="3" step="0.05" value="0.75">
+      </div>
+    </div>
+  </details>
+
+  <details open>
+    <summary>Air</summary>
+    <div class="section-body">
+      <div class="toggle-row">
+        <span>Aktifkan air</span>
+        <input type="checkbox" id="toggleWater" checked>
+      </div>
+      <div class="row">
+        <label>Transparansi air <span class="val" id="waterOpacityVal">0.55</span></label>
+        <input type="range" id="waterOpacity" min="0.05" max="1" step="0.05" value="0.55">
+      </div>
+      <div class="row">
+        <label>Kecepatan ombak <span class="val" id="waveSpeedVal">1.0</span></label>
+        <input type="range" id="waveSpeed" min="0" max="3" step="0.1" value="1">
+      </div>
+      <div class="row">
+        <label>Tinggi ombak <span class="val" id="waveHeightVal">0.15</span></label>
+        <input type="range" id="waveHeight" min="0" max="0.5" step="0.01" value="0.15">
+      </div>
+    </div>
+  </details>
+
+  <details open>
+    <summary>Vegetasi</summary>
+    <div class="section-body">
+      <div class="row">
+        <label>Jumlah pohon <span class="val" id="treeCountVal">15</span></label>
+        <input type="range" id="treeCount" min="0" max="120" step="1" value="15">
+      </div>
+      <div class="row">
+        <label>Ukuran cluster daun <span class="val" id="leafSizeVal">2.0</span></label>
+        <input type="range" id="leafSize" min="0.5" max="5" step="0.1" value="2">
+      </div>
+      <div class="row">
+        <label>Cluster per ranting <span class="val" id="leafPerTwigVal">20-22</span></label>
+        <input type="range" id="leafPerTwig" min="1" max="22" step="1" value="20">
+      </div>
+      <hr>
+      <div class="toggle-row">
+        <span>Aktifkan rumput</span>
+        <input type="checkbox" id="toggleGrass" checked>
+      </div>
+      <div class="row">
+        <label>Jumlah rumput <span class="val" id="grassCountVal">1500</span></label>
+        <input type="range" id="grassCount" min="0" max="6000" step="100" value="1500">
+      </div>
+      <div class="row">
+        <label>Tinggi rumput <span class="val" id="grassHeightVal">1.0</span></label>
+        <input type="range" id="grassHeight" min="0.3" max="2" step="0.05" value="1">
+      </div>
+      <div class="row">
+        <label>Jumlah patch rumput <span class="val" id="grassPatchesVal">20</span></label>
+        <input type="range" id="grassPatches" min="5" max="60" step="1" value="20">
+      </div>
+    </div>
+  </details>
+
+  <details open>
+    <summary>Angin &amp; Waktu</summary>
+    <div class="section-body">
+      <div class="toggle-row">
+        <span>Aktifkan angin</span>
+        <input type="checkbox" id="toggleWind" checked>
+      </div>
+      <div class="row">
+        <label>Kekuatan angin <span class="val" id="windStrengthVal">1.0</span></label>
+        <input type="range" id="windStrength" min="0" max="3" step="0.1" value="1">
+      </div>
+      <hr>
+      <div class="row">
+        <label>Waktu (siang/malam) <span class="val" id="timeOfDayVal">Siang</span></label>
+        <input type="range" id="timeOfDay" min="0" max="100" step="1" value="60">
+      </div>
+    </div>
+  </details>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/math/SimplexNoise.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/SSAOShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/ConvolutionShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/SSAOPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/BloomPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script>
+(function(){
+  const wrap = document.getElementById('canvas-wrap');
+  const loading = document.getElementById('loading');
+  const errbox = document.getElementById('errbox');
+  const fpsEl = document.getElementById('fpsVal');
+
+  function showError(msg) {
+    console.error(msg);
+    errbox.style.display = 'block';
+    errbox.textContent += msg + '\n';
+  }
+  window.addEventListener('error', (e) => {
+    showError('[error] ' + (e.message || e.error || e));
+  });
+
+  // ============================================================
+  //  GODRAYS SHADER
+  // ============================================================
+  const GodRaysShader = {
+    uniforms: {
+      tDiffuse:     { value: null },
+      uSunPosition: { value: new THREE.Vector2(0.5, 0.5) },
+      uSunColor:    { value: new THREE.Color(0xfff0cc) },
+      uIntensity:   { value: 0.5 },
+      uOpacity:     { value: 0.03 },
+      uDecay:       { value: 0.95 },
+      uDensity:     { value: 0.97 },
+      uWeight:      { value: 0.10 },
+      uThreshold:   { value: 0.60 },
+      uAspect:      { value: 1.0 },
+      uEnabled:     { value: 1.0 }
+    },
+    vertexShader: [
+      'varying vec2 vUv;',
+      'void main() {',
+      '  vUv = uv;',
+      '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+      '}'
+    ].join('\n'),
+    fragmentShader: [
+      'uniform sampler2D tDiffuse;',
+      'uniform vec2 uSunPosition;',
+      'uniform vec3 uSunColor;',
+      'uniform float uIntensity;',
+      'uniform float uOpacity;',
+      'uniform float uDecay;',
+      'uniform float uDensity;',
+      'uniform float uWeight;',
+      'uniform float uThreshold;',
+      'uniform float uAspect;',
+      'uniform float uEnabled;',
+      'varying vec2 vUv;',
+      'void main() {',
+      '  vec4 texel = texture2D(tDiffuse, vUv);',
+      '  if (uEnabled < 0.5) { gl_FragColor = texel; return; }',
+      '  vec2 delta = vUv - uSunPosition;',
+      '  delta.x *= uAspect;',
+      '  delta *= uDensity / 40.0;',
+      '  delta.x /= uAspect;',
+      '  vec2 coord = vUv;',
+      '  float illumDecay = 1.0;',
+      '  vec3 accum = vec3(0.0);',
+      '  for (int i = 0; i < 40; i++) {',
+      '    coord -= delta;',
+      '    vec3 c = texture2D(tDiffuse, coord).rgb;',
+      '    float lum = dot(c, vec3(0.299, 0.587, 0.114));',
+      '    vec3 bright = c * smoothstep(uThreshold, 1.0, lum);',
+      '    accum += bright * illumDecay * uWeight;',
+      '    illumDecay *= uDecay;',
+      '  }',
+      '  vec3 outCol = texel.rgb + accum * uIntensity * uSunColor;',
+      '  outCol = mix(texel.rgb, outCol, uOpacity);',
+      '  gl_FragColor = vec4(outCol, texel.a);',
+      '}'
+    ].join('\n')
+  };
+
+  // ============================================================
+  //  GLOBALS
+  // ============================================================
+  let scene, camera, renderer, sun, ambient, hemi;
+  let player;
+  let playerCamOrbit = { theta: 0, phi: 1.15, radius: 4.5 };
+  let waterMesh;
+  let waterUniforms = null;
+  let skyUniforms = null;
+  let treesGroup;
+  let skyMesh;
+  let fogRef;
+  let sunMesh, sunGlowMesh;
+
+  let composer = null;
+  let renderPass = null;
+  let ssaoPass = null;
+  let bloomPass = null;
+  let godraysPass = null;
+  let composerOk = false;
+  let composerBroken = false;
+
+  let woodTexture = null;
+  let stoneTexture = null;
+  let grassLantaiTexture = null;
+  let groundLeavesTexture = null;
+  let forestLeavesTexture = null;
+  let leafImageTexture = null;
+  const grassTextures = [];
+
+  let trunkMatCache = null;
+  let rockMatCache = null;
+
+  let allLeafInstances = [];
+  let leafMesh = null;
+  let grassMeshes = [];
+
+  const sunWorldPos = new THREE.Vector3();
+
+  const windUniforms = {
+    uTime:     { value: 0 },
+    uWindDir:  { value: new THREE.Vector2(0.8, 0.35) },
+    uStrength: { value: 1.0 }
+  };
+
+  const state = {
+    shadowsOn: true,
+    shadowStrength: 2.0,
+    shadowQuality: 2,
+    sunHeightDeg: 45,
+    sunAngleDeg: 30,
+    sunSize: 0.75,
+    shadowSoftness: 8,
+    waterOn: true,
+    waterOpacity: 0.55,
+    waveSpeed: 1.0,
+    waveHeight: 0.15,
+    treeCount: 15,
+    leafSize: 2.0,
+    leavesPerTwig: 20,
+    timeOfDay: 60,
+    playerMode: true,
+    postOn: true,
+    ssaoOn: true,
+    ssaoStrength: 0.30,
+    ssaoRadius: 0.10,
+    bloomOn: true,
+    bloomStrength: 0.10,
+    bloomRadius: 0.50,
+    bloomThreshold: 0.10,
+    godraysOn: true,
+    godraysIntensity: 0.50,
+    godraysOpacity: 0.03,
+    godraysDecay: 0.95,
+    godraysWeight: 0.10,
+    godraysThreshold: 0.60,
+    windOn: true,
+    windStrength: 1.0,
+    grassOn: true,
+    grassCount: 1500,
+    grassHeight: 1.0,
+    grassPatches: 20
+  };
+
+  const shadowMapSizes = [512, 1024, 2048];
+
+  // ============================================================
+  //  TEXTURE LOADER
+  // ============================================================
+  function loadTexture(uri, opts, onFail) {
+    opts = opts || {};
+    if (!uri) { if (onFail) onFail(); return null; }
+    const loader = new THREE.TextureLoader();
+    loader.setCrossOrigin('anonymous');
+    const tex = loader.load(uri, (t) => {
+      if (opts.repeatX != null && opts.repeatY != null) {
+        t.wrapS = THREE.RepeatWrapping;
+        t.wrapT = THREE.RepeatWrapping;
+        t.repeat.set(opts.repeatX, opts.repeatY);
+      }
+      t.needsUpdate = true;
+    }, undefined, () => { console.warn('[texture] gagal:', uri); if (onFail) onFail(); });
+    if (opts.repeatX != null && opts.repeatY != null) {
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(opts.repeatX, opts.repeatY);
+    }
+    return tex;
+  }
+
+  function hslToRgb(h, s, l) {
+    let r, g, b;
+    if (s === 0) { r = g = b = l; }
+    else {
+      const hue2rgb = (p, q, t) => {
+        if (t < 0) t += 1; if (t > 1) t -= 1;
+        if (t < 1/6) return p + (q - p) * 6 * t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+        return p;
+      };
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1/3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1/3);
+    }
+    return [Math.round(r*255), Math.round(g*255), Math.round(b*255)];
+  }
+
+  function generateLeafClusterFallback(size) {
+    size = size || 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, size, size);
+    const cx = size / 2, cy = size / 2;
+    const leafCount = 22 + Math.floor(Math.random() * 12);
+    const leaves = [];
+    for (let i = 0; i < leafCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.pow(Math.random(), 0.6) * size * 0.40;
+      const x = cx + Math.cos(angle) * dist;
+      const y = cy + Math.sin(angle) * dist;
+      const leafLen = size * (0.16 + Math.random() * 0.10);
+      const leafWid = leafLen * (0.45 + Math.random() * 0.20);
+      leaves.push({ x, y, leafLen, leafWid, rot: Math.random() * Math.PI * 2, depth: dist });
+    }
+    leaves.sort((a, b) => a.depth - b.depth);
+    for (let i = 0; i < leaves.length; i++) {
+      const L = leaves[i];
+      const rgb = hslToRgb(0.26 + (Math.random() - 0.5) * 0.06, 0.55 + Math.random() * 0.25, 0.35 + Math.random() * 0.20);
+      const r = rgb[0], g = rgb[1], b = rgb[2];
+      ctx.save();
+      ctx.translate(L.x, L.y);
+      ctx.rotate(L.rot);
+      ctx.fillStyle = 'rgb(' + ((r*0.5)|0) + ',' + ((g*0.5)|0) + ',' + ((b*0.5)|0) + ')';
+      ctx.beginPath(); ctx.ellipse(0, 0, L.leafWid + 1.5, L.leafLen + 1.5, 0, 0, Math.PI * 2); ctx.fill();
+      const grad = ctx.createRadialGradient(-L.leafWid * 0.4, -L.leafLen * 0.3, 0, 0, 0, L.leafLen);
+      grad.addColorStop(0, 'rgb(' + Math.min(255,r+55) + ',' + Math.min(255,g+45) + ',' + Math.min(255,b+35) + ')');
+      grad.addColorStop(1, 'rgb(' + r + ',' + g + ',' + b + ')');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.ellipse(0, 0, L.leafWid, L.leafLen, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.anisotropy = 4;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  function loadTextures() {
+    grassLantaiTexture = loadTexture('./grass-lantai.jpg', { repeatX: 1, repeatY: 1 });
+    groundLeavesTexture = loadTexture('./groundleaves.jpg', { repeatX: 1, repeatY: 1 });
+    forestLeavesTexture = loadTexture('./forestleaves.jpg', { repeatX: 1, repeatY: 1 });
+    stoneTexture = loadTexture('./stone-8kb.jpg', { repeatX: 1, repeatY: 1 });
+    woodTexture = loadTexture('./wood-8kb.jpg', { repeatX: 2, repeatY: 3 });
+    leafImageTexture = loadTexture(
+      './Leaves0170-1-download600-removebg-preview-2.png',
+      {},
+      () => {
+        console.warn('[leaf] PNG gagal — pakai canvas fallback');
+        leafImageTexture = generateLeafClusterFallback(256);
+      }
+    );
+    for (let i = 1; i <= 6; i++) {
+      const t = loadTexture('./grass-' + i + '.png', {},
+        () => console.warn('[grass] grass-' + i + '.png gagal'));
+      if (t) grassTextures.push(t);
+    }
+  }
+
+  // ============================================================
+  //  INIT
+  // ============================================================
+  function init() {
+    scene = new THREE.Scene();
+
+    camera = new THREE.PerspectiveCamera(55, wrap.clientWidth / wrap.clientHeight, 0.1, 500);
+    camera.position.set(18, 12, 22);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.setClearColor(0x0d1210, 1);
+    wrap.appendChild(renderer.domElement);
+
+    buildSky();
+
+    hemi = new THREE.HemisphereLight(0x88bbff, 0x3a4a2a, 0.55);
+    scene.add(hemi);
+
+    ambient = new THREE.AmbientLight(0xffffff, 0.15);
+    scene.add(ambient);
+
+    sun = new THREE.DirectionalLight(0xfff2d6, 1.1);
+    sun.castShadow = true;
+    sun.shadow.camera.left = -30;
+    sun.shadow.camera.right = 30;
+    sun.shadow.camera.top = 30;
+    sun.shadow.camera.bottom = -30;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 80;
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.02;
+    scene.add(sun);
+    scene.add(sun.target);
+
+    const sunDiscGeo = new THREE.SphereGeometry(2.4, 24, 24);
+    const sunDiscMat = new THREE.MeshBasicMaterial({ color: 0xfff6da, fog: false });
+    sunDiscMat.color.setRGB(2.5, 2.3, 1.9);
+    sunMesh = new THREE.Mesh(sunDiscGeo, sunDiscMat);
+    scene.add(sunMesh);
+
+    const sunGlowGeo = new THREE.SphereGeometry(7.0, 24, 24);
+    const sunGlowMat = new THREE.MeshBasicMaterial({
+      color: 0xffe6a8, transparent: true, opacity: 0.45,
+      fog: false, depthWrite: false
+    });
+    sunGlowMat.color.setRGB(1.8, 1.5, 1.1);
+    sunGlowMesh = new THREE.Mesh(sunGlowGeo, sunGlowMat);
+    scene.add(sunGlowMesh);
+
+    loadTextures();
+    buildTerrain();
+    buildWater();
+
+    treesGroup = new THREE.Group();
+    scene.add(treesGroup);
+    rebuildTrees();
+
+    buildRocks();
+    buildGrass();
+
+    player = buildPlayer();
+    player.visible = true;
+    setupPlayerKeyboard();
+    setupTouchControls();
+    setupPlayerCameraDrag();
+
+    // Force player mode ON, no toggle
+    setPlayerMode(true);
+
+    updateSunPosition();
+    updateSunSize();
+    updateShadowQuality();
+    updateFogAndSky();
+
+    window.addEventListener('resize', onResize);
+    setupPanelToggle();
+    setupControls();
+    setupPostProcessing();
+
+    loading.style.display = 'none';
+    animate();
+  }
+
+  function buildSky() {
+    const geo = new THREE.SphereGeometry(200, 32, 16);
+    skyUniforms = {
+      uHorizon: { value: new THREE.Color(0xbcd8ea) },
+      uMid:     { value: new THREE.Color(0x8ec9f0) },
+      uZenith:  { value: new THREE.Color(0x4a90c9) },
+      uSunDir:  { value: new THREE.Vector3(0, 1, 0) },
+      uSunTint: { value: new THREE.Color(0xfff0cc) }
+    };
+    const mat = new THREE.ShaderMaterial({
+      uniforms: skyUniforms,
+      side: THREE.BackSide,
+      fog: false,
+      depthWrite: false,
+      vertexShader: [
+        'varying vec3 vDir;',
+        'void main() {',
+        '  vDir = normalize(position);',
+        '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+        '}'
+      ].join('\n'),
+      fragmentShader: [
+        'uniform vec3 uHorizon;',
+        'uniform vec3 uMid;',
+        'uniform vec3 uZenith;',
+        'uniform vec3 uSunDir;',
+        'uniform vec3 uSunTint;',
+        'varying vec3 vDir;',
+        'void main() {',
+        '  float h = clamp(vDir.y, -0.15, 1.0);',
+        '  vec3 col = mix(uHorizon, uMid, smoothstep(-0.05, 0.35, h));',
+        '  col = mix(col, uZenith, smoothstep(0.3, 0.95, h));',
+        '  float sunDot = max(dot(vDir, normalize(uSunDir)), 0.0);',
+        '  col += uSunTint * pow(sunDot, 8.0) * 0.45;',
+        '  col += uSunTint * pow(sunDot, 2.0) * 0.08;',
+        '  gl_FragColor = vec4(col, 1.0);',
+        '}'
+      ].join('\n')
+    });
+    skyMesh = new THREE.Mesh(geo, mat);
+    scene.add(skyMesh);
+  }
+
+  // ============================================================
+  //  TERRAIN
+  // ============================================================
+  function buildTerrain() {
+    const size = 60, segments = 100;
+    const geo = new THREE.PlaneGeometry(size, size, segments, segments);
+    geo.rotateX(-Math.PI / 2);
+
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i);
+      let h = 0;
+      h += Math.sin(x * 0.15) * Math.cos(z * 0.15) * 1.2;
+      h += Math.sin(x * 0.05 + z * 0.05) * 2.0;
+      const lakeDist = Math.sqrt((x-6)*(x-6) + (z+4)*(z+4));
+      const lakeFalloff = Math.max(0, 1 - lakeDist / 9);
+      h -= lakeFalloff * lakeFalloff * 3.5;
+      pos.setY(i, h);
+    }
+    geo.computeVertexNormals();
+
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff, roughness: 0.95, metalness: 0.0
+    });
+
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.tGrass = { value: grassLantaiTexture };
+      shader.uniforms.tGroundLeaves = { value: groundLeavesTexture };
+      shader.uniforms.tForestLeaves = { value: forestLeavesTexture };
+      shader.uniforms.uNoiseScale = { value: 0.18 };
+      shader.uniforms.uUVScale = { value: 0.10 };
+
+      shader.vertexShader =
+        'varying vec3 vWorldPosTerrain;\n' +
+        shader.vertexShader.replace(
+          '#include <worldpos_vertex>',
+          '#include <worldpos_vertex>\n  vWorldPosTerrain = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+        );
+
+      shader.fragmentShader =
+        'uniform sampler2D tGrass;\n' +
+        'uniform sampler2D tGroundLeaves;\n' +
+        'uniform sampler2D tForestLeaves;\n' +
+        'uniform float uNoiseScale;\n' +
+        'uniform float uUVScale;\n' +
+        'varying vec3 vWorldPosTerrain;\n' +
+        shader.fragmentShader;
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        [
+          'vec2 terrainUV = vWorldPosTerrain.xz * uUVScale;',
+          'float n1 = sin(vWorldPosTerrain.x * uNoiseScale + 1.3) * cos(vWorldPosTerrain.z * uNoiseScale * 0.9 + 0.7);',
+          'float n2 = sin(vWorldPosTerrain.x * uNoiseScale * 2.7 + 4.1) * cos(vWorldPosTerrain.z * uNoiseScale * 2.3 + 2.3);',
+          'float n3 = sin(vWorldPosTerrain.x * uNoiseScale * 5.1 + 3.7) * cos(vWorldPosTerrain.z * uNoiseScale * 4.9 + 5.1);',
+          'float noise1 = (n1 * 0.6 + n2 * 0.3 + n3 * 0.1) * 0.5 + 0.5;',
+          'float n4 = sin(vWorldPosTerrain.x * uNoiseScale * 0.5 + 5.3) * cos(vWorldPosTerrain.z * uNoiseScale * 0.7 + 4.1);',
+          'float n5 = sin(vWorldPosTerrain.x * uNoiseScale * 1.5 + 2.9) * cos(vWorldPosTerrain.z * uNoiseScale * 1.3 + 1.7);',
+          'float noise2 = (n4 * 0.7 + n5 * 0.3) * 0.5 + 0.5;',
+          'float hNorm = clamp((vWorldPosTerrain.y + 3.0) / 6.0, 0.0, 1.0);',
+          'float wGround = 0.35 + noise1 * 0.55;',
+          'float wGrass  = (1.0 - hNorm) * 0.55 + noise2 * 0.45;',
+          'float wForest = hNorm * 0.55 + (1.0 - noise2) * 0.45;',
+          'wGround = max(wGround, 0.10);',
+          'wGrass  = max(wGrass, 0.10);',
+          'wForest = max(wForest, 0.10);',
+          'float totalW = wGround + wGrass + wForest;',
+          'wGround /= totalW; wGrass /= totalW; wForest /= totalW;',
+          'vec3 cGround = texture2D(tGroundLeaves, terrainUV).rgb;',
+          'vec3 cGrass  = texture2D(tGrass, terrainUV * 1.25).rgb;',
+          'vec3 cForest = texture2D(tForestLeaves, terrainUV * 0.85).rgb;',
+          'vec3 blended = cGround * wGround + cGrass * wGrass + cForest * wForest;',
+          'diffuseColor.rgb *= blended;'
+        ].join('\n')
+      );
+    };
+    mat.customProgramCacheKey = () => 'terrain_blend_clean_v1';
+
+    const ground = new THREE.Mesh(geo, mat);
+    ground.receiveShadow = true;
+    ground.castShadow = false;
+    scene.add(ground);
+  }
+
+  function sampleTerrainHeight(x, z) {
+    let h = 0;
+    h += Math.sin(x * 0.15) * Math.cos(z * 0.15) * 1.2;
+    h += Math.sin(x * 0.05 + z * 0.05) * 2.0;
+    const lakeDist = Math.sqrt((x-6)*(x-6) + (z+4)*(z+4));
+    const lakeFalloff = Math.max(0, 1 - lakeDist / 9);
+    h -= lakeFalloff * lakeFalloff * 3.5;
+    return h;
+  }
+
+  function isInLake(x, z) {
+    const lakeDist = Math.sqrt((x-6)*(x-6) + (z+4)*(z+4));
+    return lakeDist < 8.5;
+  }
+
+  // ============================================================
+  //  WATER
+  // ============================================================
+  function buildWater() {
+    const geo = new THREE.PlaneGeometry(20, 20, 128, 128);
+    geo.rotateX(-Math.PI / 2);
+    waterUniforms = {
+      uTime:       { value: 0 },
+      uWaveSpeed:  { value: state.waveSpeed },
+      uWaveHeight: { value: state.waveHeight },
+      uSunDir:     { value: new THREE.Vector3(0, 1, 0) },
+      uSunColor:   { value: new THREE.Color(0xfff2d6) },
+      uSkyColor:   { value: new THREE.Color(0x8ec9f0) },
+      uShallow:    { value: new THREE.Color(0x9de0ef) },
+      uDeep:       { value: new THREE.Color(0x5aacc8) },
+      uOpacity:    { value: state.waterOpacity }
+    };
+    const mat = new THREE.ShaderMaterial({
+      uniforms: waterUniforms,
+      transparent: true,
+      side: THREE.DoubleSide,
+      vertexShader: [
+        'uniform float uTime;','uniform float uWaveSpeed;','uniform float uWaveHeight;',
+        'varying vec3 vWorldPos;','varying vec3 vNormal;','varying float vWave;',
+        'float waveH(vec2 p, float t) {',
+        '  float h = 0.0;',
+        '  h += sin(p.x * 0.5 + t) * cos(p.y * 0.5 + t * 0.8) * uWaveHeight;',
+        '  h += sin(p.x * 1.7 - p.y * 0.9 + t * 1.6) * uWaveHeight * 0.28;',
+        '  h += sin(p.x * 0.6 + p.y * 2.1 - t * 2.2) * uWaveHeight * 0.16;',
+        '  return h;',
+        '}',
+        'void main() {',
+        '  vec4 worldPos = modelMatrix * vec4(position, 1.0);',
+        '  float t = uTime * uWaveSpeed;',
+        '  float h = waveH(worldPos.xz, t);',
+        '  float eps = 0.15;',
+        '  float hx = waveH(worldPos.xz + vec2(eps, 0.0), t);',
+        '  float hz = waveH(worldPos.xz + vec2(0.0, eps), t);',
+        '  vec3 tx = vec3(eps, hx - h, 0.0);',
+        '  vec3 tz = vec3(0.0, hz - h, eps);',
+        '  vNormal = normalize(cross(tz, tx));',
+        '  vec3 displaced = position + vec3(0.0, h, 0.0);',
+        '  vWorldPos = (modelMatrix * vec4(displaced, 1.0)).xyz;',
+        '  vWave = h;',
+        '  gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);',
+        '}'
+      ].join('\n'),
+      fragmentShader: [
+        'uniform float uTime;','uniform float uWaveSpeed;',
+        'uniform vec3 uSunDir;','uniform vec3 uSunColor;','uniform vec3 uSkyColor;',
+        'uniform vec3 uShallow;','uniform vec3 uDeep;','uniform float uOpacity;',
+        'varying vec3 vWorldPos;','varying vec3 vNormal;','varying float vWave;',
+        'void main() {',
+        '  vec3 N = normalize(vNormal);',
+        '  float t = uTime * uWaveSpeed;',
+        '  float m1 = sin(vWorldPos.x * 7.0 + t * 3.0) * cos(vWorldPos.z * 5.5 - t * 2.6);',
+        '  float m2 = sin(vWorldPos.x * 3.3 - vWorldPos.z * 4.7 + t * 4.0);',
+        '  N.x += m1 * 0.035;','N.z += m2 * 0.030;','N = normalize(N);',
+        '  vec3 V = normalize(cameraPosition - vWorldPos);',
+        '  float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);',
+        '  fres = clamp(fres, 0.05, 1.0);',
+        '  vec3 bodyCol = mix(uDeep, uShallow, clamp(vWave * 2.0 + 0.5, 0.0, 1.0));',
+        '  vec3 skyRefl = uSkyColor * fres;',
+        '  vec3 L = normalize(uSunDir);',
+        '  vec3 H = normalize(L + V);',
+        '  float spec = pow(max(dot(N, H), 0.0), 220.0);',
+        '  vec3 specCol = uSunColor * spec * 2.2;',
+        '  vec3 col = bodyCol * (1.0 - fres) + skyRefl + specCol;',
+        '  gl_FragColor = vec4(col, uOpacity);',
+        '}'
+      ].join('\n')
+    });
+    waterMesh = new THREE.Mesh(geo, mat);
+    waterMesh.position.set(6, -1.55, -4);
+    waterMesh.receiveShadow = true;
+    scene.add(waterMesh);
+  }
+
+  // ============================================================
+  //  GRASS — 6-plane crossed
+  // ============================================================
+  function makeGrassCrossedGeometry(numPlanes) {
+    numPlanes = numPlanes || 6;
+    const geo = new THREE.BufferGeometry();
+    const positions = [], normals = [], uvs = [], indices = [];
+    const halfW = 0.5;
+    for (let p = 0; p < numPlanes; p++) {
+      const angle = (p / numPlanes) * Math.PI;
+      const c = Math.cos(angle), s = Math.sin(angle);
+      const baseIdx = positions.length / 3;
+      const pts = [[-halfW, 0],[halfW, 0],[halfW, 1],[-halfW, 1]];
+      for (let k = 0; k < 4; k++) {
+        positions.push(pts[k][0] * c, pts[k][1], pts[k][0] * s);
+        normals.push(s, 0, c);
+      }
+      uvs.push(0, 0, 1, 0, 1, 1, 0, 1);
+      indices.push(baseIdx, baseIdx + 1, baseIdx + 2, baseIdx, baseIdx + 2, baseIdx + 3);
+    }
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('normal',   new THREE.Float32BufferAttribute(normals, 3));
+    geo.setAttribute('uv',       new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    geo.computeBoundingSphere();
+    return geo;
+  }
+
+  function applyGrassWind(mat) {
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uWindTime = windUniforms.uTime;
+      shader.uniforms.uWindDir = windUniforms.uWindDir;
+      shader.uniforms.uWindStrength = windUniforms.uStrength;
+      shader.vertexShader =
+        'uniform float uWindTime;\nuniform vec2  uWindDir;\nuniform float uWindStrength;\n' +
+        shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <project_vertex>',
+        [
+          'vec4 mvPosition = vec4( transformed, 1.0 );',
+          '#ifdef USE_INSTANCING',
+          '  mvPosition = instanceMatrix * mvPosition;',
+          '#endif',
+          'vec4 grassWorld = modelMatrix * mvPosition;',
+          'float bendFactor = clamp(transformed.y, 0.0, 1.0);',
+          'bendFactor = bendFactor * bendFactor;',
+          'float tA = uWindTime * 1.9;',
+          'float tB = uWindTime * 2.7;',
+          'float sway = sin(tA + grassWorld.x * 1.2 + grassWorld.z * 0.8) * 0.7',
+          '           + sin(tB + grassWorld.y * 0.6) * 0.3;',
+          'float amp = bendFactor * 0.30 * uWindStrength;',
+          'grassWorld.x += uWindDir.x * amp * sway;',
+          'grassWorld.z += uWindDir.y * amp * sway;',
+          'mvPosition = viewMatrix * grassWorld;',
+          'gl_Position = projectionMatrix * mvPosition;'
+        ].join('\n')
+      );
+    };
+    mat.customProgramCacheKey = () => 'grass_6plane_wind_v1';
+    return mat;
+  }
+
+  function buildGrass() {
+    if (grassMeshes && grassMeshes.length) {
+      for (let i = 0; i < grassMeshes.length; i++) {
+        const m = grassMeshes[i];
+        scene.remove(m);
+        m.geometry.dispose();
+        if (m.material) m.material.dispose();
+        if (m.customDepthMaterial) m.customDepthMaterial.dispose();
+      }
+    }
+    grassMeshes = [];
+
+    const totalCount = state.grassCount;
+    const patchCount = state.grassPatches;
+    const numTextures = grassTextures.length;
+    if (totalCount <= 0 || patchCount <= 0 || numTextures === 0) return;
+
+    const patches = [];
+    let attempts = 0;
+    while (patches.length < patchCount && attempts < patchCount * 20) {
+      attempts++;
+      const px = (Math.random() * 2 - 1) * 24;
+      const pz = (Math.random() * 2 - 1) * 24;
+      if (isInLake(px, pz)) continue;
+      let tooClose = false;
+      for (let i = 0; i < patches.length; i++) {
+        const dx = patches[i].x - px, dz = patches[i].z - pz;
+        if (Math.sqrt(dx*dx + dz*dz) < 3.5) { tooClose = true; break; }
+      }
+      if (tooClose) continue;
+      patches.push({ x: px, z: pz, radius: 2.0 + Math.random() * 2.0 });
+    }
+
+    const tuftPositions = [];
+    const perMesh = Math.floor(totalCount / numTextures);
+
+    for (let p = 0; p < patches.length && tuftPositions.length < perMesh; p++) {
+      const patch = patches[p];
+      const perPatch = Math.ceil(perMesh / patches.length);
+      for (let i = 0; i < perPatch && tuftPositions.length < perMesh; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.pow(Math.random(), 0.6) * patch.radius;
+        const x = patch.x + Math.cos(angle) * dist;
+        const z = patch.z + Math.sin(angle) * dist;
+        if (isInLake(x, z)) continue;
+        tuftPositions.push({
+          x: x, z: z,
+          rotY: Math.random() * Math.PI * 2,
+          sxz: (0.5 + Math.random() * 0.35) * state.grassHeight,
+          sy:  (0.65 + Math.random() * 0.45) * state.grassHeight
+        });
+      }
+    }
+
+    const geo = makeGrassCrossedGeometry(6);
+    for (let t = 0; t < numTextures; t++) {
+      const tex = grassTextures[t];
+      if (!tex) continue;
+      const mat = new THREE.MeshStandardMaterial({
+        map: tex, alphaTest: 0.5, side: THREE.DoubleSide,
+        roughness: 0.9, metalness: 0.0, transparent: false, color: 0xffffff
+      });
+      applyGrassWind(mat);
+      const mesh = new THREE.InstancedMesh(geo, mat, tuftPositions.length);
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      mesh.customDepthMaterial = new THREE.MeshDepthMaterial({
+        depthPacking: THREE.RGBADepthPacking, map: tex, alphaTest: 0.5
+      });
+      const dummy = new THREE.Object3D();
+      for (let i = 0; i < tuftPositions.length; i++) {
+        const tp = tuftPositions[i];
+        const y = sampleTerrainHeight(tp.x, tp.z);
+        dummy.position.set(tp.x, y, tp.z);
+        dummy.rotation.y = tp.rotY;
+        dummy.scale.set(tp.sxz, tp.sy, tp.sxz);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      scene.add(mesh);
+      grassMeshes.push(mesh);
+    }
+  }
+
+  function rebuildGrass() { buildGrass(); }
+
+  // ============================================================
+  //  LEAF
+  // ============================================================
+  function makeLeafQuadGeometry() {
+    const geo = new THREE.BufferGeometry();
+    const h = 0.5;
+    const positions = new Float32Array([
+      -h,-h,0, h,-h,0, h,h,0, -h,h,0,
+       0,-h,-h, 0,-h,h, 0,h,h, 0,h,-h
+    ]);
+    const normals = new Float32Array([
+      0,0,1, 0,0,1, 0,0,1, 0,0,1,
+      1,0,0, 1,0,0, 1,0,0, 1,0,0
+    ]);
+    const uvs = new Float32Array([
+      0,0, 1,0, 1,1, 0,1, 0,0, 1,0, 1,1, 0,1
+    ]);
+    const indices = new Uint16Array([0,1,2, 0,2,3, 4,5,6, 4,6,7]);
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('normal',   new THREE.BufferAttribute(normals, 3));
+    geo.setAttribute('uv',       new THREE.BufferAttribute(uvs, 2));
+    geo.setIndex(new THREE.BufferAttribute(indices, 1));
+    geo.computeBoundingSphere();
+    return geo;
+  }
+
+  function applyLeafWind(mat) {
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uWindTime     = windUniforms.uTime;
+      shader.uniforms.uWindDir      = windUniforms.uWindDir;
+      shader.uniforms.uWindStrength = windUniforms.uStrength;
+      shader.vertexShader =
+        'uniform float uWindTime;\nuniform vec2  uWindDir;\nuniform float uWindStrength;\n' +
+        shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <project_vertex>',
+        [
+          'vec4 mvPosition = vec4( transformed, 1.0 );',
+          '#ifdef USE_INSTANCING',
+          '  mvPosition = instanceMatrix * mvPosition;',
+          '#endif',
+          'vec4 leafWorld = modelMatrix * mvPosition;',
+          'float tA = uWindTime * 1.6;',
+          'float tB = uWindTime * 2.3;',
+          'float sway = sin(tA + leafWorld.x * 0.7 + leafWorld.z * 0.5) * 0.6',
+          '           + sin(tB + leafWorld.y * 0.4) * 0.4;',
+          'float hMask = clamp(leafWorld.y * 0.05, 0.0, 1.0);',
+          'float amp = hMask * 0.12 * uWindStrength;',
+          'leafWorld.x += uWindDir.x * amp * sway;',
+          'leafWorld.z += uWindDir.y * amp * sway;',
+          'mvPosition = viewMatrix * leafWorld;',
+          'gl_Position = projectionMatrix * mvPosition;'
+        ].join('\n')
+      );
+    };
+    mat.customProgramCacheKey = () => 'leaf_instanced_wind_v3';
+    return mat;
+  }
+
+  function buildLeafInstances() {
+    if (leafMesh) {
+      scene.remove(leafMesh);
+      leafMesh.geometry.dispose();
+      if (leafMesh.material) leafMesh.material.dispose();
+      if (leafMesh.customDepthMaterial) leafMesh.customDepthMaterial.dispose();
+      leafMesh = null;
+    }
+    if (allLeafInstances.length === 0) return;
+    const tex = leafImageTexture || generateLeafClusterFallback(256);
+    const geo = makeLeafQuadGeometry();
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex, alphaTest: 0.4, side: THREE.DoubleSide,
+      roughness: 0.9, metalness: 0.0, transparent: false, color: 0xffffff
+    });
+    applyLeafWind(mat);
+    leafMesh = new THREE.InstancedMesh(geo, mat, allLeafInstances.length);
+    leafMesh.castShadow = true;
+    leafMesh.receiveShadow = true;
+    leafMesh.frustumCulled = false;
+    leafMesh.customDepthMaterial = new THREE.MeshDepthMaterial({
+      depthPacking: THREE.RGBADepthPacking, map: tex, alphaTest: 0.4
+    });
+    const dummy = new THREE.Object3D();
+    for (let i = 0; i < allLeafInstances.length; i++) {
+      const leaf = allLeafInstances[i];
+      dummy.position.copy(leaf.position);
+      dummy.quaternion.copy(leaf.quaternion);
+      dummy.scale.copy(leaf.scale);
+      dummy.updateMatrix();
+      leafMesh.setMatrixAt(i, dummy.matrix);
+    }
+    leafMesh.instanceMatrix.needsUpdate = true;
+    scene.add(leafMesh);
+  }
+
+  // ============================================================
+  //  TRUNK
+  // ============================================================
+  function getTrunkMat() {
+    if (trunkMatCache) return trunkMatCache;
+    trunkMatCache = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 });
+    if (woodTexture) trunkMatCache.map = woodTexture;
+    else trunkMatCache.color.set(0x9a8367);
+    return trunkMatCache;
+  }
+
+  function growBranch(group, origin, dir, length, radius, depth, maxDepth, budget, trunkMat, stats) {
+    const segments = radius > 0.05 ? 6 : 5;
+    const geo = new THREE.CylinderGeometry(Math.max(radius * 0.68, 0.008), Math.max(radius, 0.01), length, segments);
+    geo.translate(0, length / 2, 0);
+    const mesh = new THREE.Mesh(geo, trunkMat);
+    mesh.position.copy(origin);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    group.add(mesh);
+    stats.branches++;
+
+    const tip = origin.clone().addScaledVector(dir, length);
+    if (depth <= 0) {
+      stats.terminals++;
+      const leafCount = Math.min(state.leavesPerTwig + Math.floor(Math.random() * 3), 60);
+      for (let i = 0; i < leafCount; i++) {
+        const t = leafCount === 1 ? 1 : (i + Math.random() * 0.6) / leafCount;
+        const attachPoint = origin.clone().addScaledVector(dir, length * Math.min(t, 1));
+        const outward = new THREE.Vector3(Math.random()*2-1, Math.random()*0.7+0.15, Math.random()*2-1).normalize();
+        const petioleDir = dir.clone().multiplyScalar(0.25).add(outward.multiplyScalar(0.95)).normalize();
+        const petioleLen = (0.05 + Math.random()*0.04) * state.leafSize;
+        const leafTip = attachPoint.clone().addScaledVector(petioleDir, petioleLen);
+        const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+          Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI));
+        const s = (0.25 + Math.random()*0.15) * state.leafSize;
+        stats.leaves.push({ position: leafTip, quaternion: q, scale: new THREE.Vector3(s, s, s) });
+      }
+      return;
+    }
+
+    let baseChildCount;
+    if (depth === maxDepth) baseChildCount = 4;
+    else if (depth === maxDepth - 1) baseChildCount = 3;
+    else baseChildCount = 2;
+
+    const childCount = Math.max(1, Math.min(baseChildCount, Math.round(budget)));
+    const childBudget = budget / childCount;
+    const up = dir.clone();
+    const arbitrary = Math.abs(up.y) > 0.9 ? new THREE.Vector3(1,0,0) : new THREE.Vector3(0,1,0);
+    const perp1 = new THREE.Vector3().crossVectors(up, arbitrary).normalize();
+    const perp2 = new THREE.Vector3().crossVectors(up, perp1).normalize();
+    const baseAzimuth = Math.random() * Math.PI * 2;
+    const azJitter = Math.random() * 0.9 - 0.45;
+
+    for (let i = 0; i < childCount; i++) {
+      const tilt = childCount === 1 ? 0.08 + Math.random()*0.15 : 0.3 + Math.random()*0.55;
+      const azimuth = baseAzimuth + (i / childCount) * Math.PI * 2 + azJitter;
+      const newDir = up.clone().multiplyScalar(Math.cos(tilt))
+        .add(perp1.clone().multiplyScalar(Math.sin(tilt) * Math.cos(azimuth)))
+        .add(perp2.clone().multiplyScalar(Math.sin(tilt) * Math.sin(azimuth)))
+        .normalize();
+      const lengthFalloff = 0.6 + Math.random()*0.2;
+      const radiusFalloff = 0.55 + Math.random()*0.15;
+      growBranch(group, tip, newDir, length*lengthFalloff, radius*radiusFalloff,
+        depth-1, maxDepth, childBudget, trunkMat, stats);
+    }
+  }
+
+  function makeTree(x, z, scale) {
+    const group = new THREE.Group();
+    const trunkMat = getTrunkMat();
+    const trunkLength = 1.35 * scale;
+    const trunkRadius = 0.13 * scale;
+    const maxDepth = 5;
+    const terminalBudget = THREE.MathUtils.clamp(Math.round(600 / Math.max(1, state.treeCount)), 30, 60);
+    const stats = { branches: 0, terminals: 0, leaves: [] };
+
+    const leanAngle = Math.random()*0.12;
+    const leanAzimuth = Math.random()*Math.PI*2;
+    const trunkDir = new THREE.Vector3(
+      Math.sin(leanAngle)*Math.cos(leanAzimuth),
+      Math.cos(leanAngle),
+      Math.sin(leanAngle)*Math.sin(leanAzimuth)
+    ).normalize();
+
+    growBranch(group, new THREE.Vector3(0,0,0), trunkDir, trunkLength, trunkRadius,
+      maxDepth, maxDepth, terminalBudget, trunkMat, stats);
+
+    group.position.set(x, sampleTerrainHeight(x, z), z);
+    group.rotation.y = Math.random()*Math.PI*2;
+    group.updateMatrixWorld(true);
+
+    const worldMat = group.matrixWorld;
+    const groupQuat = new THREE.Quaternion().setFromEuler(group.rotation);
+    for (let i = 0; i < stats.leaves.length; i++) {
+      const leaf = stats.leaves[i];
+      allLeafInstances.push({
+        position: leaf.position.clone().applyMatrix4(worldMat),
+        quaternion: leaf.quaternion.clone().premultiply(groupQuat),
+        scale: leaf.scale
+      });
+    }
+    return group;
+  }
+
+  function rebuildTrees() {
+    while (treesGroup.children.length) treesGroup.remove(treesGroup.children[0]);
+    allLeafInstances = [];
+    const count = state.treeCount;
+    const half = 26;
+    let placed = 0, attempts = 0;
+    while (placed < count && attempts < count * 8) {
+      attempts++;
+      const x = (Math.random()*2-1) * half;
+      const z = (Math.random()*2-1) * half;
+      if (isInLake(x, z)) continue;
+      if (Math.sqrt(x*x+z*z) < 3) continue;
+      const scale = 0.7 + Math.random()*0.8;
+      treesGroup.add(makeTree(x, z, scale));
+      placed++;
+    }
+    buildLeafInstances();
+  }
+
+  function buildRocks() {
+    const rockGroup = new THREE.Group();
+    if (!rockMatCache) {
+      rockMatCache = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
+      if (stoneTexture) rockMatCache.map = stoneTexture;
+      else rockMatCache.color.set(0x777669);
+    }
+    for (let i = 0; i < 10; i++) {
+      const x = (Math.random()*2-1) * 24;
+      const z = (Math.random()*2-1) * 24;
+      if (isInLake(x, z)) continue;
+      const s = 0.3 + Math.random()*0.6;
+      const geo = new THREE.DodecahedronGeometry(s, 0);
+      const rock = new THREE.Mesh(geo, rockMatCache);
+      rock.position.set(x, sampleTerrainHeight(x, z) + s*0.3, z);
+      rock.rotation.set(Math.random(), Math.random(), Math.random());
+      rock.castShadow = true; rock.receiveShadow = true;
+      rockGroup.add(rock);
+    }
+    scene.add(rockGroup);
+  }
+
+  // ============================================================
+  //  ANIME CHARACTER
+  // ============================================================
+  const PLAYER_HEIGHT = 1.65;
+  const PLAYER_SPEED = 5.5;
+  const PLAYER_JUMP_SPEED = 6.2;
+  const GRAVITY = 16;
+
+  function buildPlayer() {
+    const root = new THREE.Group();
+
+    // Materials
+    const skinMat   = new THREE.MeshStandardMaterial({ color: 0xffd4b0, roughness: 0.85 });
+    const hairMat   = new THREE.MeshStandardMaterial({ color: 0x3a1e0e, roughness: 0.55 });
+    const shirtMat  = new THREE.MeshStandardMaterial({ color: 0xf8f8f8, roughness: 0.65 });
+    const skirtMat  = new THREE.MeshStandardMaterial({ color: 0x1e3a5f, roughness: 0.7, side: THREE.DoubleSide });
+    const sockMat   = new THREE.MeshStandardMaterial({ color: 0x1a1a2a, roughness: 0.75 });
+    const shoeMat   = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.5 });
+    const eyeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const eyeIrisMat  = new THREE.MeshBasicMaterial({ color: 0x4a7ab5 });
+    const eyePupilMat = new THREE.MeshBasicMaterial({ color: 0x101020 });
+    const eyeHighMat  = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const mouthMat    = new THREE.MeshBasicMaterial({ color: 0xc47a7a });
+    const blushMat    = new THREE.MeshBasicMaterial({ color: 0xffa5a5, transparent: true, opacity: 0.65 });
+
+    // bodyRoot — untuk bob up/down & lean
+    const bodyRoot = new THREE.Group();
+    root.add(bodyRoot);
+    root.userData.bodyRoot = bodyRoot;
+
+    // ---- LEGS ----
+    function makeLeg(side) {
+      const hip = new THREE.Group();
+      hip.position.set(side * 0.09, 0.70, 0);
+
+      const thighGeo = new THREE.CylinderGeometry(0.065, 0.058, 0.30, 8);
+      thighGeo.translate(0, -0.15, 0);
+      const thigh = new THREE.Mesh(thighGeo, skinMat);
+      thigh.castShadow = true;
+      hip.add(thigh);
+
+      const knee = new THREE.Group();
+      knee.position.y = -0.30;
+      hip.add(knee);
+
+      // Calf = sock (dark)
+      const calfGeo = new THREE.CylinderGeometry(0.055, 0.048, 0.30, 8);
+      calfGeo.translate(0, -0.15, 0);
+      const calf = new THREE.Mesh(calfGeo, sockMat);
+      calf.castShadow = true;
+      knee.add(calf);
+
+      // Ankle cuff
+      const cuffGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.04, 8);
+      cuffGeo.translate(0, -0.28, 0);
+      const cuff = new THREE.Mesh(cuffGeo, sockMat);
+      knee.add(cuff);
+
+      // Foot (shoe)
+      const footGeo = new THREE.BoxGeometry(0.10, 0.10, 0.20);
+      footGeo.translate(0, -0.05, 0.05);
+      const foot = new THREE.Mesh(footGeo, shoeMat);
+      foot.position.y = -0.30;
+      foot.castShadow = true;
+      knee.add(foot);
+
+      root.add(hip); // legs attached to root (don't bob with bodyRoot)
+      return { hip, knee };
+    }
+    const leftLeg = makeLeg(-1);
+    const rightLeg = makeLeg(1);
+
+    // ---- TORSO ----
+    const torso = new THREE.Group();
+    torso.position.y = 0.70;
+    bodyRoot.add(torso);
+    root.userData.torso = torso;
+
+    // Chest (shirt)
+    const chestGeo = new THREE.CylinderGeometry(0.13, 0.115, 0.40, 10);
+    chestGeo.translate(0, 0.22, 0);
+    const chest = new THREE.Mesh(chestGeo, shirtMat);
+    chest.castShadow = true;
+    chest.receiveShadow = true;
+    torso.add(chest);
+
+    // Skirt (flared cone)
+    const skirtGeo = new THREE.CylinderGeometry(0.12, 0.26, 0.20, 14, 1, true);
+    skirtGeo.translate(0, -0.02, 0);
+    const skirt = new THREE.Mesh(skirtGeo, skirtMat);
+    skirt.castShadow = true;
+    skirt.receiveShadow = true;
+    torso.add(skirt);
+
+    // ---- ARMS ----
+    function makeArm(side) {
+      const shoulder = new THREE.Group();
+      shoulder.position.set(side * 0.155, 0.38, 0);
+      torso.add(shoulder);
+
+      // Upper arm (shirt sleeve — short sleeve)
+      const upperGeo = new THREE.CylinderGeometry(0.05, 0.045, 0.10, 8);
+      upperGeo.translate(0, -0.05, 0);
+      const sleeve = new THREE.Mesh(upperGeo, shirtMat);
+      sleeve.castShadow = true;
+      shoulder.add(sleeve);
+
+      // Rest of upper arm — skin
+      const upperSkinGeo = new THREE.CylinderGeometry(0.043, 0.038, 0.14, 8);
+      upperSkinGeo.translate(0, -0.17, 0);
+      const upperSkin = new THREE.Mesh(upperSkinGeo, skinMat);
+      upperSkin.castShadow = true;
+      shoulder.add(upperSkin);
+
+      const elbow = new THREE.Group();
+      elbow.position.y = -0.22;
+      shoulder.add(elbow);
+
+      // Lower arm — skin
+      const lowerGeo = new THREE.CylinderGeometry(0.036, 0.032, 0.20, 8);
+      lowerGeo.translate(0, -0.10, 0);
+      const lowerArm = new THREE.Mesh(lowerGeo, skinMat);
+      lowerArm.castShadow = true;
+      elbow.add(lowerArm);
+
+      // Hand
+      const handGeo = new THREE.SphereGeometry(0.045, 8, 6);
+      const hand = new THREE.Mesh(handGeo, skinMat);
+      hand.position.y = -0.22;
+      hand.scale.set(1, 1.2, 0.7);
+      hand.castShadow = true;
+      elbow.add(hand);
+
+      return { shoulder, elbow };
+    }
+    const leftArm = makeArm(-1);
+    const rightArm = makeArm(1);
+
+    // ---- HEAD ----
+    const headGroup = new THREE.Group();
+    headGroup.position.y = 0.50;
+    torso.add(headGroup);
+    root.userData.headGroup = headGroup;
+
+    // Neck
+    const neckGeo = new THREE.CylinderGeometry(0.05, 0.055, 0.08, 8);
+    const neck = new THREE.Mesh(neckGeo, skinMat);
+    neck.position.y = 0.0;
+    neck.castShadow = true;
+    headGroup.add(neck);
+
+    // Head sphere
+    const headGeo = new THREE.SphereGeometry(0.22, 20, 16);
+    headGeo.scale(1, 1.1, 0.95);
+    const head = new THREE.Mesh(headGeo, skinMat);
+    head.position.y = 0.19;
+    head.castShadow = true;
+    headGroup.add(head);
+
+    // Hair — main volume
+    const hairMainGeo = new THREE.SphereGeometry(0.235, 20, 16, 0, Math.PI*2, 0, Math.PI * 0.62);
+    const hairMain = new THREE.Mesh(hairMainGeo, hairMat);
+    hairMain.position.y = 0.19;
+    hairMain.scale.set(1.05, 1.15, 1.05);
+    hairMain.castShadow = true;
+    headGroup.add(hairMain);
+
+    // Hair — back volume
+    const backHairGeo = new THREE.SphereGeometry(0.22, 16, 12, 0, Math.PI, 0, Math.PI);
+    const backHair = new THREE.Mesh(backHairGeo, hairMat);
+    backHair.position.y = 0.21;
+    backHair.rotation.y = Math.PI;
+    backHair.scale.set(1.1, 1.3, 1.0);
+    backHair.castShadow = true;
+    headGroup.add(backHair);
+
+    // Twin tails
+    for (let s of [-1, 1]) {
+      const tailGroup = new THREE.Group();
+      tailGroup.position.set(s * 0.20, 0.25, -0.08);
+      tailGroup.rotation.z = s * 0.35;
+      tailGroup.rotation.x = -0.35;
+
+      const tailGeo = new THREE.CylinderGeometry(0.055, 0.085, 0.38, 8);
+      tailGeo.translate(0, -0.19, 0);
+      const tail = new THREE.Mesh(tailGeo, hairMat);
+      tail.castShadow = true;
+      tailGroup.add(tail);
+
+      const tipGeo = new THREE.SphereGeometry(0.075, 8, 6);
+      const tip = new THREE.Mesh(tipGeo, hairMat);
+      tip.position.y = -0.38;
+      tip.castShadow = true;
+      tailGroup.add(tip);
+
+      // Ribbon/hair tie
+      const tieGeo = new THREE.TorusGeometry(0.06, 0.018, 6, 12);
+      const tieMat = new THREE.MeshStandardMaterial({ color: 0xe84a6a, roughness: 0.5 });
+      const tie = new THREE.Mesh(tieGeo, tieMat);
+      tie.rotation.x = Math.PI / 2;
+      tailGroup.add(tie);
+
+      headGroup.add(tailGroup);
+      root.userData['tail' + (s < 0 ? 'L' : 'R')] = tailGroup;
+    }
+
+    // Bangs — flat pieces in front
+    for (let i = -1; i <= 1; i++) {
+      const bangGeo = new THREE.BoxGeometry(0.085, 0.13, 0.055);
+      bangGeo.translate(0, -0.065, 0);
+      const bang = new THREE.Mesh(bangGeo, hairMat);
+      bang.position.set(i * 0.095, 0.32, 0.175);
+      bang.rotation.x = 0.12;
+      bang.rotation.z = i * 0.18;
+      bang.castShadow = true;
+      headGroup.add(bang);
+    }
+
+    // Eyes — big anime style
+    for (let s of [-1, 1]) {
+      const eyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.042, 10, 8), eyeWhiteMat);
+      eyeWhite.position.set(s * 0.075, 0.17, 0.19);
+      eyeWhite.scale.set(1, 1.3, 0.4);
+      headGroup.add(eyeWhite);
+
+      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.028, 10, 8), eyeIrisMat);
+      iris.position.set(s * 0.078, 0.16, 0.215);
+      iris.scale.set(1, 1.25, 0.3);
+      headGroup.add(iris);
+
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 6), eyePupilMat);
+      pupil.position.set(s * 0.078, 0.16, 0.223);
+      pupil.scale.set(1, 1.15, 0.3);
+      headGroup.add(pupil);
+
+      const hl = new THREE.Mesh(new THREE.SphereGeometry(0.009, 6, 4), eyeHighMat);
+      hl.position.set(s * 0.086, 0.178, 0.228);
+      headGroup.add(hl);
+
+      const hl2 = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 4), eyeHighMat);
+      hl2.position.set(s * 0.070, 0.152, 0.228);
+      headGroup.add(hl2);
+
+      // Eyebrow
+      const browGeo = new THREE.BoxGeometry(0.06, 0.012, 0.02);
+      const brow = new THREE.Mesh(browGeo, hairMat);
+      brow.position.set(s * 0.08, 0.25, 0.20);
+      brow.rotation.z = s * -0.15;
+      headGroup.add(brow);
+
+      // Blush
+      const blush = new THREE.Mesh(new THREE.CircleGeometry(0.035, 10), blushMat);
+      blush.position.set(s * 0.13, 0.11, 0.19);
+      blush.rotation.y = s * 0.4;
+      headGroup.add(blush);
+    }
+
+    // Mouth
+    const mouth = new THREE.Mesh(new THREE.PlaneGeometry(0.038, 0.012), mouthMat);
+    mouth.position.set(0, 0.075, 0.21);
+    headGroup.add(mouth);
+
+    // Store anim refs
+    root.userData.leftLeg = leftLeg;
+    root.userData.rightLeg = rightLeg;
+    root.userData.leftArm = leftArm;
+    root.userData.rightArm = rightArm;
+    root.userData.animPhase = 0;
+    root.userData.moveAmount = 0;
+    root.userData.jumpAmount = 0;
+    root.userData.facingAngle = 0;
+    root.userData.velY = 0;
+
+    // Start position
+    const startX = 0, startZ = 8;
+    root.position.set(startX, sampleTerrainHeight(startX, startZ) + 0.02, startZ);
+    scene.add(root);
+    return root;
+  }
+
+  // ============================================================
+  //  ANIMATION
+  // ============================================================
+  function animatePlayer(dt) {
+    const ud = player.userData;
+
+    // Target values
+    let targetMove = 0;
+    if (keys.forward || keys.back || keys.left || keys.right) targetMove = 1;
+    if (joystick.active) {
+      const mag = Math.sqrt(joystick.dx * joystick.dx + joystick.dy * joystick.dy);
+      if (mag > 0.15) targetMove = Math.min(1, mag);
+    }
+
+    ud.moveAmount += (targetMove - ud.moveAmount) * Math.min(1, dt * 8);
+
+    const groundY = sampleTerrainHeight(player.position.x, player.position.z);
+    const inAir = player.position.y > groundY + 0.05;
+    const targetJump = inAir ? 1 : 0;
+    ud.jumpAmount += (targetJump - ud.jumpAmount) * Math.min(1, dt * 12);
+
+    // Animation phase
+    const speedMul = 1 + ud.moveAmount * 1.5;
+    ud.animPhase += dt * speedMul * 6;
+    const phase = ud.animPhase;
+
+    const run  = ud.moveAmount;
+    const jump = ud.jumpAmount;
+    const airLift = 1 - jump; // 1 on ground, 0 in air
+
+    // Breathing for idle
+    const breath = Math.sin(phase * 0.6) * 0.012;
+
+    // ===== LEGS =====
+    const legSwing = Math.sin(phase * 2) * 0.85 * run;
+    const legSwingB = Math.sin(phase * 2 + Math.PI) * 0.85 * run;
+
+    // Jump pose: leg tucked forward
+    const jumpLeg = -0.75;
+    const jumpKnee = 1.15;
+
+    const legL_run_rot = legSwing;
+    const legR_run_rot = legSwingB;
+
+    ud.leftLeg.hip.rotation.x  = legL_run_rot * airLift + jumpLeg * jump;
+    ud.rightLeg.hip.rotation.x = legR_run_rot * airLift + (jumpLeg * 0.7) * jump;
+
+    // Knee bends more when leg behind (positive rotation.x = bent backward)
+    const kneeL_run = Math.max(0, -legSwing) * 1.3 * run;
+    const kneeR_run = Math.max(0, -legSwingB) * 1.3 * run;
+    ud.leftLeg.knee.rotation.x  = kneeL_run  * airLift + jumpKnee * jump;
+    ud.rightLeg.knee.rotation.x = kneeR_run * airLift + (jumpKnee * 0.8) * jump;
+
+    // ===== ARMS =====
+    const armSwing = Math.sin(phase * 2 + Math.PI) * 0.75 * run;
+    const armSwingB = Math.sin(phase * 2) * 0.75 * run;
+
+    const jumpArmUp = -2.3;
+
+    ud.leftArm.shoulder.rotation.x = armSwing * airLift + jumpArmUp * jump;
+    ud.rightArm.shoulder.rotation.x = armSwingB * airLift + (jumpArmUp * 0.95) * jump;
+
+    // Arm out — always slight, more when running/jumping
+    ud.leftArm.shoulder.rotation.z = 0.10 + run * 0.15 + jump * 0.5;
+    ud.rightArm.shoulder.rotation.z = -0.10 - run * 0.15 - jump * 0.5;
+
+    // Elbow bend
+    const elbowBend = -(0.20 + run * 0.55 + jump * 0.35);
+    ud.leftArm.elbow.rotation.x = elbowBend;
+    ud.rightArm.elbow.rotation.x = elbowBend;
+
+    // ===== BODY BOB =====
+    const bob = Math.abs(Math.sin(phase * 2)) * 0.035 * run + breath;
+    ud.bodyRoot.position.y = bob;
+
+    // Lean forward when running
+    ud.bodyRoot.rotation.x = run * 0.12 + jump * 0.10;
+
+    // Head bob slightly
+    ud.headGroup.rotation.x = -run * 0.08 - jump * 0.15;
+
+    // Twin tails sway
+    if (ud.tailL && ud.tailR) {
+      const tailSway = Math.sin(phase * 2 + 0.5) * 0.15 * run + Math.sin(phase * 0.8) * 0.05;
+      ud.tailL.rotation.z = -0.35 - tailSway - jump * 0.4;
+      ud.tailR.rotation.z =  0.35 + tailSway + jump * 0.4;
+      ud.tailL.rotation.x = -0.35 + Math.abs(tailSway) * 0.5;
+      ud.tailR.rotation.x = -0.35 + Math.abs(tailSway) * 0.5;
+    }
+  }
+
+  // ============================================================
+  //  POST-PROCESSING
+  // ============================================================
+  function rebuildComposer() {
+    composer = null; renderPass = null; ssaoPass = null;
+    bloomPass = null; godraysPass = null;
+    composerOk = false;
+    if (!state.postOn) return;
+    if (typeof THREE.EffectComposer === 'undefined' || typeof THREE.RenderPass === 'undefined') return;
+
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    try {
+      composer = new THREE.EffectComposer(renderer);
+      composer.setSize(w, h);
+      renderPass = new THREE.RenderPass(scene, camera);
+      composer.addPass(renderPass);
+
+      if (state.ssaoOn && typeof THREE.SSAOPass !== 'undefined') {
+        try {
+          ssaoPass = new THREE.SSAOPass(scene, camera, w, h);
+          ssaoPass.kernelRadius = state.ssaoRadius;
+          ssaoPass.minDistance = 0.0015;
+          ssaoPass.maxDistance = 0.1;
+          ssaoPass.kernelSize = 24;
+          if (ssaoPass.blendMaterial) {
+            const bm = ssaoPass.blendMaterial;
+            if (!bm.uniforms.uIntensity) {
+              bm.uniforms.uIntensity = { value: state.ssaoStrength };
+              let fs = bm.fragmentShader || '';
+              if (fs.indexOf('uniform float uIntensity') === -1) {
+                fs = 'uniform float uIntensity;\n' + fs;
+              }
+              fs = fs.replace(
+                'gl_FragColor = diffuseColor * blurColor;',
+                'gl_FragColor = diffuseColor * mix(vec4(1.0), blurColor, uIntensity);'
+              );
+              fs = fs.replace(
+                'gl_FragColor = diffuseColor.rgb * blurColor.rgb;',
+                'gl_FragColor.rgb = diffuseColor.rgb * mix(vec3(1.0), blurColor.rgb, uIntensity);'
+              );
+              bm.fragmentShader = fs;
+              bm.needsUpdate = true;
+            } else {
+              bm.uniforms.uIntensity.value = state.ssaoStrength;
+            }
+          }
+          composer.addPass(ssaoPass);
+        } catch (e) { console.warn('[post] SSAO gagal:', e); ssaoPass = null; }
+      }
+
+      if (state.bloomOn) {
+        if (typeof THREE.UnrealBloomPass !== 'undefined') {
+          try {
+            bloomPass = new THREE.UnrealBloomPass(
+              new THREE.Vector2(w, h),
+              state.bloomStrength, state.bloomRadius, state.bloomThreshold
+            );
+            composer.addPass(bloomPass);
+          } catch (e) { console.warn('[post] UnrealBloom gagal:', e); bloomPass = null; }
+        }
+        if (!bloomPass && typeof THREE.BloomPass !== 'undefined') {
+          try {
+            bloomPass = new THREE.BloomPass(state.bloomStrength * 1.25, 25, 4.0, 512);
+            composer.addPass(bloomPass);
+          } catch (e) { console.warn('[post] Bloom gagal:', e); bloomPass = null; }
+        }
+      }
+
+      if (state.godraysOn) {
+        try {
+          godraysPass = new THREE.ShaderPass(GodRaysShader);
+          godraysPass.uniforms.uIntensity.value = state.godraysIntensity;
+          godraysPass.uniforms.uOpacity.value = state.godraysOpacity;
+          godraysPass.uniforms.uDecay.value = state.godraysDecay;
+          godraysPass.uniforms.uWeight.value = state.godraysWeight;
+          godraysPass.uniforms.uThreshold.value = state.godraysThreshold;
+          godraysPass.uniforms.uEnabled.value = 1.0;
+          godraysPass.uniforms.uAspect.value = w / h;
+          composer.addPass(godraysPass);
+        } catch (e) { console.warn('[post] Godrays gagal:', e); godraysPass = null; }
+      }
+
+      for (let i = 0; i < composer.passes.length; i++) composer.passes[i].renderToScreen = false;
+      const last = composer.passes[composer.passes.length - 1];
+      if (last) last.renderToScreen = true;
+      composerOk = true;
+    } catch (e) {
+      console.error('[post] Composer gagal:', e);
+      composer = null; composerOk = false;
+    }
+  }
+
+  function setupPostProcessing() { rebuildComposer(); }
+
+  // ============================================================
+  //  PLAYER INPUT
+  // ============================================================
+  const keys = { forward: false, back: false, left: false, right: false, jump: false };
+
+  function setupPlayerKeyboard() {
+    window.addEventListener('keydown', (e) => {
+      switch (e.code) {
+        case 'KeyW': case 'ArrowUp': keys.forward = true; break;
+        case 'KeyS': case 'ArrowDown': keys.back = true; break;
+        case 'KeyA': case 'ArrowLeft': keys.left = true; break;
+        case 'KeyD': case 'ArrowRight': keys.right = true; break;
+        case 'Space': keys.jump = true; e.preventDefault(); break;
+      }
+    });
+    window.addEventListener('keyup', (e) => {
+      switch (e.code) {
+        case 'KeyW': case 'ArrowUp': keys.forward = false; break;
+        case 'KeyS': case 'ArrowDown': keys.back = false; break;
+        case 'KeyA': case 'ArrowLeft': keys.left = false; break;
+        case 'KeyD': case 'ArrowRight': keys.right = false; break;
+        case 'Space': keys.jump = false; break;
+      }
+    });
+  }
+
+  const joystick = { active: false, dx: 0, dy: 0, pointerId: null };
+
+  function setupTouchControls() {
+    const zone = document.getElementById('joystickZone');
+    const thumb = document.getElementById('joystickThumb');
+    const jumpBtn = document.getElementById('jumpBtn');
+    const maxRadius = 40;
+
+    function setThumb(dx, dy) {
+      thumb.style.left = (35 + dx) + 'px';
+      thumb.style.top = (35 + dy) + 'px';
+    }
+    zone.addEventListener('pointerdown', (e) => {
+      joystick.active = true; joystick.pointerId = e.pointerId;
+      zone.setPointerCapture(e.pointerId); updateFromEvent(e);
+    });
+    zone.addEventListener('pointermove', (e) => {
+      if (joystick.active && e.pointerId === joystick.pointerId) updateFromEvent(e);
+    });
+    function endJoystick(e) {
+      if (e.pointerId !== joystick.pointerId) return;
+      joystick.active = false; joystick.dx = 0; joystick.dy = 0; setThumb(0, 0);
+    }
+    zone.addEventListener('pointerup', endJoystick);
+    zone.addEventListener('pointercancel', endJoystick);
+    function updateFromEvent(e) {
+      const rect = zone.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+      let dx = e.clientX - cx, dy = e.clientY - cy;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist > maxRadius) { dx = dx / dist * maxRadius; dy = dy / dist * maxRadius; }
+      joystick.dx = dx / maxRadius; joystick.dy = dy / maxRadius;
+      setThumb(dx, dy);
+    }
+    jumpBtn.addEventListener('pointerdown', (e) => { keys.jump = true; e.preventDefault(); });
+    jumpBtn.addEventListener('pointerup', (e) => { keys.jump = false; });
+    jumpBtn.addEventListener('pointercancel', (e) => { keys.jump = false; });
+  }
+
+  function setupPlayerCameraDrag() {
+    const dom = renderer.domElement;
+    let dragging = false, lastX = 0, lastY = 0, dragPointerId = null;
+    dom.addEventListener('pointerdown', (e) => {
+      if (e.target.id === 'joystickZone' || e.target.id === 'joystickThumb' || e.target.id === 'jumpBtn') return;
+      dragging = true; dragPointerId = e.pointerId;
+      lastX = e.clientX; lastY = e.clientY;
+    });
+    window.addEventListener('pointermove', (e) => {
+      if (!dragging || e.pointerId !== dragPointerId) return;
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      playerCamOrbit.theta -= dx * 0.006;
+      playerCamOrbit.phi -= dy * 0.006;
+      playerCamOrbit.phi = Math.max(0.5, Math.min(Math.PI/2 - 0.05, playerCamOrbit.phi));
+    });
+    window.addEventListener('pointerup', (e) => {
+      if (e.pointerId === dragPointerId) { dragging = false; dragPointerId = null; }
+    });
+    dom.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      playerCamOrbit.radius += e.deltaY * 0.01;
+      playerCamOrbit.radius = Math.max(2.5, Math.min(12, playerCamOrbit.radius));
+    }, { passive: false });
+  }
+
+  function updatePlayer(dt) {
+    if (!player) return;
+
+    let moveX = 0, moveZ = 0;
+    if (keys.forward) moveZ -= 1;
+    if (keys.back) moveZ += 1;
+    if (keys.left) moveX -= 1;
+    if (keys.right) moveX += 1;
+    if (joystick.active) { moveX += joystick.dx; moveZ += joystick.dy; }
+    const moveLen = Math.sqrt(moveX*moveX + moveZ*moveZ);
+
+    if (moveLen > 0.001) {
+      moveX /= moveLen; moveZ /= moveLen;
+
+      const camYaw = playerCamOrbit.theta;
+      const s = Math.sin(camYaw), c = Math.cos(camYaw);
+      const worldX =  moveX * c + moveZ * s;
+      const worldZ = -moveX * s + moveZ * c;
+
+      const speed = PLAYER_SPEED * Math.min(1, moveLen);
+      player.position.x += worldX * speed * dt;
+      player.position.z += worldZ * speed * dt;
+
+      const targetAngle = Math.atan2(worldX, worldZ);
+      let da = targetAngle - player.userData.facingAngle;
+      da = Math.atan2(Math.sin(da), Math.cos(da));
+      player.userData.facingAngle += da * Math.min(1, dt * 12);
+      player.rotation.y = player.userData.facingAngle;
+    }
+
+    const groundY = sampleTerrainHeight(player.position.x, player.position.z);
+    const atGround = player.position.y <= groundY + 0.02;
+
+    if (keys.jump && atGround) player.userData.velY = PLAYER_JUMP_SPEED;
+    player.userData.velY -= GRAVITY * dt;
+    player.position.y += player.userData.velY * dt;
+    if (player.position.y < groundY) {
+      player.position.y = groundY;
+      player.userData.velY = 0;
+    }
+
+    const half = 28;
+    player.position.x = Math.max(-half, Math.min(half, player.position.x));
+    player.position.z = Math.max(-half, Math.min(half, player.position.z));
+
+    // Camera follow
+    const target = new THREE.Vector3(
+      player.position.x,
+      player.position.y + 1.1,
+      player.position.z
+    );
+    const r = playerCamOrbit.radius;
+    const camX = target.x + r * Math.sin(playerCamOrbit.phi) * Math.sin(playerCamOrbit.theta);
+    const camY = target.y + r * Math.cos(playerCamOrbit.phi);
+    const camZ = target.z + r * Math.sin(playerCamOrbit.phi) * Math.cos(playerCamOrbit.theta);
+    camera.position.set(camX, camY, camZ);
+    camera.lookAt(target);
+
+    // Animate character
+    animatePlayer(dt);
+  }
+
+  function setPlayerMode(on) {
+    state.playerMode = on;
+    document.getElementById('hudPlayer').style.display = on ? 'block' : 'none';
+    document.getElementById('touchControls').style.display = on ? 'block' : 'none';
+    if (player) player.visible = on;
+
+    if (on) {
+      playerCamOrbit.theta = player.userData.facingAngle + Math.PI;
+      playerCamOrbit.phi = 1.20;
+      playerCamOrbit.radius = 4.5;
+    }
+  }
+
+  // ============================================================
+  //  SUN / SHADOW / SKY
+  // ============================================================
+  function updateSunPosition() {
+    const heightRad = THREE.MathUtils.degToRad(state.sunHeightDeg);
+    const angleRad = THREE.MathUtils.degToRad(state.sunAngleDeg);
+    const dist = 40;
+    const y = Math.sin(heightRad) * dist;
+    const horiz = Math.cos(heightRad) * dist;
+    const x = Math.cos(angleRad) * horiz;
+    const z = Math.sin(angleRad) * horiz;
+    sun.position.set(x, y, z);
+    sun.target.position.set(0, 0, 0);
+    if (sunMesh) sunMesh.position.set(x, y, z);
+    if (sunGlowMesh) sunGlowMesh.position.set(x, y, z);
+    if (waterUniforms) waterUniforms.uSunDir.value.set(x, y, z).normalize();
+    if (skyUniforms)   skyUniforms.uSunDir.value.set(x, y, z).normalize();
+  }
+
+  function updateSunSize() {
+    if (sunMesh) sunMesh.scale.setScalar(state.sunSize);
+    if (sunGlowMesh) sunGlowMesh.scale.setScalar(state.sunSize);
+  }
+
+  function updateShadowQuality() {
+    const size = shadowMapSizes[state.shadowQuality];
+    sun.shadow.mapSize.width = size;
+    sun.shadow.mapSize.height = size;
+    sun.shadow.radius = state.shadowSoftness;
+    if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+    sun.castShadow = state.shadowsOn;
+    renderer.shadowMap.needsUpdate = true;
+  }
+
+  function updateFogAndSky() {
+    const t = state.timeOfDay / 100;
+    const dayFactor = Math.max(0, Math.min(1, (t - 0.05) / 0.9));
+    const night  = { horizon: new THREE.Color(0x1a2340), mid: new THREE.Color(0x0b1330), zenith: new THREE.Color(0x050a1a) };
+    const sunset = { horizon: new THREE.Color(0xff9a5a), mid: new THREE.Color(0xd98a5a), zenith: new THREE.Color(0x5a4a7a) };
+    const day    = { horizon: new THREE.Color(0xbcd8ea), mid: new THREE.Color(0x8ec9f0), zenith: new THREE.Color(0x4a90c9) };
+
+    let h, m, z;
+    if (t < 0.15) {
+      const k = t / 0.15;
+      h = night.horizon.clone().lerp(sunset.horizon, k);
+      m = night.mid.clone().lerp(sunset.mid, k);
+      z = night.zenith.clone().lerp(sunset.zenith, k);
+    } else if (t < 0.3) {
+      const k = (t - 0.15) / 0.15;
+      h = sunset.horizon.clone().lerp(day.horizon, k);
+      m = sunset.mid.clone().lerp(day.mid, k);
+      z = sunset.zenith.clone().lerp(day.zenith, k);
+    } else if (t < 0.85) {
+      h = day.horizon.clone(); m = day.mid.clone(); z = day.zenith.clone();
+    } else {
+      const k = (t - 0.85) / 0.15;
+      h = day.horizon.clone().lerp(sunset.horizon, k);
+      m = day.mid.clone().lerp(sunset.mid, k);
+      z = day.zenith.clone().lerp(sunset.zenith, k);
+    }
+
+    if (skyUniforms) {
+      skyUniforms.uHorizon.value.copy(h);
+      skyUniforms.uMid.value.copy(m);
+      skyUniforms.uZenith.value.copy(z);
+      const sunTint = (t < 0.3 || t > 0.85) ? new THREE.Color(0xffd9a0) : new THREE.Color(0xfff0cc);
+      skyUniforms.uSunTint.value.copy(sunTint);
+    }
+
+    if (!fogRef) {
+      fogRef = new THREE.Fog(h.getHex(), 30, 90);
+      scene.fog = fogRef;
+    } else {
+      fogRef.color.copy(h);
+    }
+
+    const baseSun  = 0.15 + dayFactor * 1.0;
+    const baseHemi = 0.20 + dayFactor * 0.5;
+    const baseAmb  = 0.05 + dayFactor * 0.15;
+    const ss = state.shadowStrength;
+    sun.intensity     = baseSun  * (0.5 + 0.5 * ss);
+    hemi.intensity    = baseHemi * (1.2 - 0.2 * ss);
+    ambient.intensity = baseAmb  * (1.2 - 0.2 * ss);
+    sun.color.set(t < 0.3 || t > 0.85 ? 0xffb37a : 0xfff2d6);
+
+    if (sunMesh && sunGlowMesh) {
+      const dayBright = 1.6 + dayFactor * 1.6;
+      if (t < 0.3 || t > 0.85) {
+        sunMesh.material.color.setRGB(dayBright * 1.15, dayBright * 0.85, dayBright * 0.55);
+        sunGlowMesh.material.color.setRGB(dayBright * 0.95, dayBright * 0.7, dayBright * 0.4);
+      } else {
+        sunMesh.material.color.setRGB(dayBright, dayBright * 0.98, dayBright * 0.85);
+        sunGlowMesh.material.color.setRGB(dayBright * 0.85, dayBright * 0.8, dayBright * 0.6);
+      }
+      const visibility = Math.max(0.05, dayFactor);
+      sunMesh.visible = true;
+      sunGlowMesh.visible = true;
+      sunGlowMesh.material.opacity = 0.35 * visibility + 0.10;
+    }
+
+    if (waterUniforms) {
+      const sc = sun.color;
+      waterUniforms.uSunColor.value.setRGB(
+        Math.min(1, Math.max(0, sc.r)),
+        Math.min(1, Math.max(0, sc.g)),
+        Math.min(1, Math.max(0, sc.b))
+      );
+      waterUniforms.uSkyColor.value.copy(m);
+    }
+  }
+
+  function onResize() {
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    if (composer) composer.setSize(w, h);
+    if (godraysPass && godraysPass.uniforms.uAspect) godraysPass.uniforms.uAspect.value = w / h;
+  }
+
+  function setupPanelToggle() {
+    const panel = document.getElementById('panel');
+    const btn = document.getElementById('panelToggle');
+    btn.addEventListener('click', () => {
+      const hidden = panel.classList.toggle('hidden');
+      btn.classList.toggle('active', !hidden);
+    });
+  }
+
+  // ============================================================
+  //  UI CONTROLS
+  // ============================================================
+  function setupControls() {
+    const $ = id => document.getElementById(id);
+
+    $('togglePost').addEventListener('change', e => { state.postOn = e.target.checked; rebuildComposer(); });
+    $('toggleSSAO').addEventListener('change', e => { state.ssaoOn = e.target.checked; rebuildComposer(); });
+    $('toggleBloom').addEventListener('change', e => { state.bloomOn = e.target.checked; rebuildComposer(); });
+    $('toggleGodrays').addEventListener('change', e => {
+      state.godraysOn = e.target.checked;
+      if (godraysPass) godraysPass.uniforms.uEnabled.value = state.godraysOn ? 1 : 0;
+    });
+
+    $('ssaoRadius').addEventListener('input', e => {
+      state.ssaoRadius = parseFloat(e.target.value);
+      $('ssaoRadiusVal').textContent = state.ssaoRadius.toFixed(2);
+      if (ssaoPass) ssaoPass.kernelRadius = state.ssaoRadius;
+    });
+    $('ssaoStrength').addEventListener('input', e => {
+      state.ssaoStrength = parseFloat(e.target.value);
+      $('ssaoStrengthVal').textContent = state.ssaoStrength.toFixed(2);
+      if (ssaoPass && ssaoPass.blendMaterial && ssaoPass.blendMaterial.uniforms.uIntensity) {
+        ssaoPass.blendMaterial.uniforms.uIntensity.value = state.ssaoStrength;
+      }
+    });
+    $('bloomStrength').addEventListener('input', e => {
+      state.bloomStrength = parseFloat(e.target.value);
+      $('bloomStrengthVal').textContent = state.bloomStrength.toFixed(2);
+      if (bloomPass && bloomPass.strength !== undefined) bloomPass.strength = state.bloomStrength;
+    });
+    $('bloomRadius').addEventListener('input', e => {
+      state.bloomRadius = parseFloat(e.target.value);
+      $('bloomRadiusVal').textContent = state.bloomRadius.toFixed(2);
+      if (bloomPass && bloomPass.radius !== undefined) bloomPass.radius = state.bloomRadius;
+    });
+    $('bloomThreshold').addEventListener('input', e => {
+      state.bloomThreshold = parseFloat(e.target.value);
+      $('bloomThresholdVal').textContent = state.bloomThreshold.toFixed(2);
+      if (bloomPass && bloomPass.threshold !== undefined) bloomPass.threshold = state.bloomThreshold;
+    });
+    $('godraysIntensity').addEventListener('input', e => {
+      state.godraysIntensity = parseFloat(e.target.value);
+      $('godraysIntensityVal').textContent = state.godraysIntensity.toFixed(2);
+      if (godraysPass) godraysPass.uniforms.uIntensity.value = state.godraysIntensity;
+    });
+    $('godraysOpacity').addEventListener('input', e => {
+      state.godraysOpacity = parseFloat(e.target.value);
+      $('godraysOpacityVal').textContent = state.godraysOpacity.toFixed(2);
+      if (godraysPass) godraysPass.uniforms.uOpacity.value = state.godraysOpacity;
+    });
+    $('godraysDecay').addEventListener('input', e => {
+      state.godraysDecay = parseFloat(e.target.value);
+      $('godraysDecayVal').textContent = state.godraysDecay.toFixed(2);
+      if (godraysPass) godraysPass.uniforms.uDecay.value = state.godraysDecay;
+    });
+    $('godraysWeight').addEventListener('input', e => {
+      state.godraysWeight = parseFloat(e.target.value);
+      $('godraysWeightVal').textContent = state.godraysWeight.toFixed(2);
+      if (godraysPass) godraysPass.uniforms.uWeight.value = state.godraysWeight;
+    });
+    $('godraysThreshold').addEventListener('input', e => {
+      state.godraysThreshold = parseFloat(e.target.value);
+      $('godraysThresholdVal').textContent = state.godraysThreshold.toFixed(2);
+      if (godraysPass) godraysPass.uniforms.uThreshold.value = state.godraysThreshold;
+    });
+
+    $('toggleWind').addEventListener('change', e => {
+      state.windOn = e.target.checked;
+      windUniforms.uStrength.value = state.windOn ? state.windStrength : 0;
+    });
+    $('windStrength').addEventListener('input', e => {
+      state.windStrength = parseFloat(e.target.value);
+      $('windStrengthVal').textContent = state.windStrength.toFixed(1);
+      windUniforms.uStrength.value = state.windOn ? state.windStrength : 0;
+    });
+
+    $('toggleShadow').addEventListener('change', e => { state.shadowsOn = e.target.checked; updateShadowQuality(); });
+    $('shadowStrength').addEventListener('input', e => {
+      state.shadowStrength = parseFloat(e.target.value);
+      $('shadowStrengthVal').textContent = state.shadowStrength.toFixed(2);
+      updateFogAndSky();
+    });
+    $('shadowQuality').addEventListener('input', e => {
+      state.shadowQuality = parseInt(e.target.value);
+      $('shadowQualVal').textContent = ['Rendah','Sedang','Ultra'][state.shadowQuality];
+      updateShadowQuality();
+    });
+    $('shadowSoft').addEventListener('input', e => {
+      state.shadowSoftness = parseFloat(e.target.value);
+      $('shadowSoftVal').textContent = state.shadowSoftness;
+      updateShadowQuality();
+    });
+    $('sunHeight').addEventListener('input', e => {
+      state.sunHeightDeg = parseFloat(e.target.value);
+      $('sunHeightVal').textContent = Math.round(state.sunHeightDeg) + '°';
+      updateSunPosition();
+    });
+    $('sunAngle').addEventListener('input', e => {
+      state.sunAngleDeg = parseFloat(e.target.value);
+      $('sunAngleVal').textContent = Math.round(state.sunAngleDeg) + '°';
+      updateSunPosition();
+    });
+    $('sunSize').addEventListener('input', e => {
+      state.sunSize = parseFloat(e.target.value);
+      $('sunSizeVal').textContent = state.sunSize.toFixed(2);
+      updateSunSize();
+    });
+
+    $('toggleWater').addEventListener('change', e => { state.waterOn = e.target.checked; waterMesh.visible = state.waterOn; });
+    $('waterOpacity').addEventListener('input', e => {
+      state.waterOpacity = parseFloat(e.target.value);
+      $('waterOpacityVal').textContent = state.waterOpacity.toFixed(2);
+      if (waterUniforms) waterUniforms.uOpacity.value = state.waterOpacity;
+    });
+    $('waveSpeed').addEventListener('input', e => {
+      state.waveSpeed = parseFloat(e.target.value);
+      $('waveSpeedVal').textContent = state.waveSpeed.toFixed(1);
+      if (waterUniforms) waterUniforms.uWaveSpeed.value = state.waveSpeed;
+    });
+    $('waveHeight').addEventListener('input', e => {
+      state.waveHeight = parseFloat(e.target.value);
+      $('waveHeightVal').textContent = state.waveHeight.toFixed(2);
+      if (waterUniforms) waterUniforms.uWaveHeight.value = state.waveHeight;
+    });
+
+    $('treeCount').addEventListener('input', e => {
+      state.treeCount = parseInt(e.target.value);
+      $('treeCountVal').textContent = state.treeCount;
+    });
+    $('treeCount').addEventListener('change', () => rebuildTrees());
+    $('leafSize').addEventListener('input', e => {
+      state.leafSize = parseFloat(e.target.value);
+      $('leafSizeVal').textContent = state.leafSize.toFixed(1);
+    });
+    $('leafSize').addEventListener('change', () => rebuildTrees());
+    $('leafPerTwig').addEventListener('input', e => {
+      state.leavesPerTwig = parseInt(e.target.value);
+      $('leafPerTwigVal').textContent = state.leavesPerTwig + '-' + (state.leavesPerTwig + 2);
+    });
+    $('leafPerTwig').addEventListener('change', () => rebuildTrees());
+
+    $('toggleGrass').addEventListener('change', e => {
+      state.grassOn = e.target.checked;
+      for (let i = 0; i < grassMeshes.length; i++) grassMeshes[i].visible = state.grassOn;
+    });
+    $('grassCount').addEventListener('input', e => {
+      state.grassCount = parseInt(e.target.value);
+      $('grassCountVal').textContent = state.grassCount;
+    });
+    $('grassCount').addEventListener('change', () => rebuildGrass());
+    $('grassHeight').addEventListener('input', e => {
+      state.grassHeight = parseFloat(e.target.value);
+      $('grassHeightVal').textContent = state.grassHeight.toFixed(2);
+    });
+    $('grassHeight').addEventListener('change', () => rebuildGrass());
+    $('grassPatches').addEventListener('input', e => {
+      state.grassPatches = parseInt(e.target.value);
+      $('grassPatchesVal').textContent = state.grassPatches;
+    });
+    $('grassPatches').addEventListener('change', () => rebuildGrass());
+
+    $('timeOfDay').addEventListener('input', e => {
+      state.timeOfDay = parseFloat(e.target.value);
+      const t = state.timeOfDay;
+      $('timeOfDayVal').textContent = t < 20 ? 'Malam' : t < 35 ? 'Senja' : t < 85 ? 'Siang' : 'Sore';
+      updateFogAndSky();
+    });
+  }
+
+  // ============================================================
+  //  RENDER LOOP
+  // ============================================================
+  const clock = new THREE.Clock();
+  let elapsedTime = 0;
+  let fpsAccum = 0, fpsFrames = 0;
+
+  function updateGodraysSun() {
+    if (!godraysPass || !sunMesh) return;
+    sunMesh.getWorldPosition(sunWorldPos);
+    const projected = sunWorldPos.clone().project(camera);
+    const uvX = (projected.x + 1) * 0.5;
+    const uvY = (projected.y + 1) * 0.5;
+    const onScreen = projected.z < 1 && uvX > -0.3 && uvX < 1.3 && uvY > -0.3 && uvY < 1.3;
+    godraysPass.uniforms.uSunPosition.value.set(uvX, uvY);
+    godraysPass.uniforms.uEnabled.value = (state.godraysOn && onScreen) ? 1 : 0;
+  }
+
+  function updateFPS(dt) {
+    fpsAccum += dt; fpsFrames++;
+    if (fpsAccum >= 0.5) {
+      const fps = Math.round(fpsFrames / fpsAccum);
+      fpsEl.textContent = fps;
+      fpsAccum = 0; fpsFrames = 0;
+    }
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    elapsedTime += dt;
+
+    if (waterUniforms) waterUniforms.uTime.value = elapsedTime;
+    windUniforms.uTime.value = elapsedTime;
+
+    updatePlayer(dt);
+    updateGodraysSun();
+    updateFPS(dt);
+
+    if (composer && composerOk && !composerBroken) {
+      try { composer.render(); }
+      catch (e) {
+        console.error('[post] composer.render gagal, fallback:', e);
+        composerBroken = true;
+        try { renderer.render(scene, camera); } catch(e2) { showError(e2.message); }
+      }
+    } else {
+      renderer.render(scene, camera);
+    }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
