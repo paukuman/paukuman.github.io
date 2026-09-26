@@ -146,23 +146,6 @@
         <input type="checkbox" id="togglePost" checked>
       </div>
       <details>
-        <summary>SSAO</summary>
-        <div class="section-body">
-          <div class="toggle-row">
-            <span>Aktifkan SSAO</span>
-            <input type="checkbox" id="toggleSSAO" checked>
-          </div>
-          <div class="row">
-            <label>Radius SSAO <span class="val" id="ssaoRadiusVal">0.10</span></label>
-            <input type="range" id="ssaoRadius" min="0.01" max="2" step="0.01" value="0.1">
-          </div>
-          <div class="row">
-            <label>Kekuatan SSAO <span class="val" id="ssaoStrengthVal">0.30</span></label>
-            <input type="range" id="ssaoStrength" min="0" max="2" step="0.01" value="0.3">
-          </div>
-        </div>
-      </details>
-      <details>
         <summary>Bloom</summary>
         <div class="section-body">
           <div class="toggle-row">
@@ -330,13 +313,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/math/SimplexNoise.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/SSAOShader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/ConvolutionShader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/SSAOPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/BloomPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
 <script>
@@ -433,7 +414,6 @@
 
   let composer = null;
   let renderPass = null;
-  let ssaoPass = null;
   let bloomPass = null;
   let godraysPass = null;
   let composerOk = false;
@@ -480,9 +460,6 @@
     timeOfDay: 60,
     playerMode: true,
     postOn: true,
-    ssaoOn: true,
-    ssaoStrength: 0.30,
-    ssaoRadius: 0.10,
     bloomOn: true,
     bloomStrength: 0.10,
     bloomRadius: 0.50,
@@ -1319,60 +1296,81 @@
   function buildPlayer() {
     const root = new THREE.Group();
 
-    // Materials
-    const skinMat   = new THREE.MeshStandardMaterial({ color: 0xffd4b0, roughness: 0.85 });
-    const hairMat   = new THREE.MeshStandardMaterial({ color: 0x3a1e0e, roughness: 0.55 });
-    const shirtMat  = new THREE.MeshStandardMaterial({ color: 0xf8f8f8, roughness: 0.65 });
-    const skirtMat  = new THREE.MeshStandardMaterial({ color: 0x1e3a5f, roughness: 0.7, side: THREE.DoubleSide });
-    const sockMat   = new THREE.MeshStandardMaterial({ color: 0x1a1a2a, roughness: 0.75 });
-    const shoeMat   = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.5 });
-    const eyeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const eyeIrisMat  = new THREE.MeshBasicMaterial({ color: 0x4a7ab5 });
-    const eyePupilMat = new THREE.MeshBasicMaterial({ color: 0x101020 });
-    const eyeHighMat  = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const mouthMat    = new THREE.MeshBasicMaterial({ color: 0xc47a7a });
-    const blushMat    = new THREE.MeshBasicMaterial({ color: 0xffa5a5, transparent: true, opacity: 0.65 });
+    // ---- Low-poly stylized palette: flat, high-contrast, no gradients ----
+    const skinMat    = new THREE.MeshStandardMaterial({ color: 0xffcda1, roughness: 0.9, flatShading: true });
+    const hairMat    = new THREE.MeshStandardMaterial({ color: 0x4a2a12, roughness: 0.7, flatShading: true });
+    const hairDkMat  = new THREE.MeshStandardMaterial({ color: 0x341c0c, roughness: 0.7, flatShading: true });
+    const shirtMat   = new THREE.MeshStandardMaterial({ color: 0xfafafa, roughness: 0.75, flatShading: true });
+    const trimMat    = new THREE.MeshStandardMaterial({ color: 0x27395c, roughness: 0.7, flatShading: true });
+    const skirtMat   = new THREE.MeshStandardMaterial({ color: 0x27395c, roughness: 0.75, flatShading: true, side: THREE.DoubleSide });
+    const sockMat    = new THREE.MeshStandardMaterial({ color: 0x22222e, roughness: 0.8, flatShading: true });
+    const shoeMat    = new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.6, flatShading: true });
+    const soleMat    = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.6, flatShading: true });
+    const eyeMat     = new THREE.MeshBasicMaterial({ color: 0x1c1420 });
+    const eyeHighMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const blushMat   = new THREE.MeshBasicMaterial({ color: 0xff9d9d, transparent: true, opacity: 0.55 });
+    const mouthMat   = new THREE.MeshBasicMaterial({ color: 0x9a5252 });
+    const ribbonMat  = new THREE.MeshStandardMaterial({ color: 0xe0455f, roughness: 0.6, flatShading: true });
 
     // bodyRoot — untuk bob up/down & lean
     const bodyRoot = new THREE.Group();
     root.add(bodyRoot);
     root.userData.bodyRoot = bodyRoot;
 
-    // ---- LEGS ----
+    // ============================================================
+    //  LEGS — blocky low-poly segments (box thigh/calf, wedge shoe)
+    // ============================================================
     function makeLeg(side) {
       const hip = new THREE.Group();
-      hip.position.set(side * 0.09, 0.70, 0);
+      hip.position.set(side * 0.10, 0.70, 0);
 
-      const thighGeo = new THREE.CylinderGeometry(0.065, 0.058, 0.30, 8);
+      // Thigh — tapered box (wider top, narrower bottom) via BoxGeometry + scale trick using a simple box
+      const thighGeo = new THREE.BoxGeometry(0.115, 0.30, 0.105, 1, 1, 1);
       thighGeo.translate(0, -0.15, 0);
       const thigh = new THREE.Mesh(thighGeo, skinMat);
       thigh.castShadow = true;
       hip.add(thigh);
 
+      // Short shorts block overlapping top of thigh
+      const shortsGeo = new THREE.BoxGeometry(0.135, 0.09, 0.125);
+      shortsGeo.translate(0, -0.02, 0);
+      const shorts = new THREE.Mesh(shortsGeo, skirtMat);
+      shorts.castShadow = true;
+      hip.add(shorts);
+
       const knee = new THREE.Group();
       knee.position.y = -0.30;
       hip.add(knee);
 
-      // Calf = sock (dark)
-      const calfGeo = new THREE.CylinderGeometry(0.055, 0.048, 0.30, 8);
-      calfGeo.translate(0, -0.15, 0);
+      // Calf — box, slightly narrower than thigh, overlapping into the knee joint
+      const calfGeo = new THREE.BoxGeometry(0.09, 0.30, 0.085);
+      calfGeo.translate(0, -0.13, 0);
       const calf = new THREE.Mesh(calfGeo, sockMat);
       calf.castShadow = true;
       knee.add(calf);
 
-      // Ankle cuff
-      const cuffGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.04, 8);
-      cuffGeo.translate(0, -0.28, 0);
-      const cuff = new THREE.Mesh(cuffGeo, sockMat);
-      knee.add(cuff);
+      // Shoe — a few stacked simple boxes: body, toe block, sole slab
+      const shoeGroup = new THREE.Group();
+      shoeGroup.position.y = -0.29;
+      knee.add(shoeGroup);
 
-      // Foot (shoe)
-      const footGeo = new THREE.BoxGeometry(0.10, 0.10, 0.20);
-      footGeo.translate(0, -0.05, 0.05);
-      const foot = new THREE.Mesh(footGeo, shoeMat);
-      foot.position.y = -0.30;
-      foot.castShadow = true;
-      knee.add(foot);
+      const shoeBodyGeo = new THREE.BoxGeometry(0.10, 0.075, 0.15);
+      shoeBodyGeo.translate(0, -0.02, 0.01);
+      const shoeBody = new THREE.Mesh(shoeBodyGeo, shoeMat);
+      shoeBody.castShadow = true;
+      shoeGroup.add(shoeBody);
+
+      const toeGeo = new THREE.BoxGeometry(0.10, 0.06, 0.09);
+      toeGeo.translate(0, -0.035, 0.115);
+      const toe = new THREE.Mesh(toeGeo, shoeMat);
+      toe.castShadow = true;
+      shoeGroup.add(toe);
+
+      const soleGeo = new THREE.BoxGeometry(0.105, 0.022, 0.22);
+      soleGeo.translate(0, -0.065, 0.04);
+      const sole = new THREE.Mesh(soleGeo, soleMat);
+      sole.castShadow = true; sole.receiveShadow = true;
+      shoeGroup.add(sole);
 
       root.add(hip); // legs attached to root (don't bob with bodyRoot)
       return { hip, knee };
@@ -1380,64 +1378,84 @@
     const leftLeg = makeLeg(-1);
     const rightLeg = makeLeg(1);
 
-    // ---- TORSO ----
+    // ============================================================
+    //  TORSO — boxy chest, flared low-poly skirt (cone-ish via cylinder)
+    // ============================================================
     const torso = new THREE.Group();
     torso.position.y = 0.70;
     bodyRoot.add(torso);
     root.userData.torso = torso;
 
-    // Chest (shirt)
-    const chestGeo = new THREE.CylinderGeometry(0.13, 0.115, 0.40, 10);
-    chestGeo.translate(0, 0.22, 0);
+    // Chest — single clean box, slightly wider at top (shoulders) than waist
+    // Extended downward so its base overlaps the hip/thigh top (no gap at waist)
+    const chestGeo = new THREE.BoxGeometry(0.26, 0.38, 0.16);
+    chestGeo.translate(0, 0.17, 0);
     const chest = new THREE.Mesh(chestGeo, shirtMat);
-    chest.castShadow = true;
-    chest.receiveShadow = true;
+    chest.castShadow = true; chest.receiveShadow = true;
     torso.add(chest);
 
-    // Skirt (flared cone)
-    const skirtGeo = new THREE.CylinderGeometry(0.12, 0.26, 0.20, 14, 1, true);
-    skirtGeo.translate(0, -0.02, 0);
-    const skirt = new THREE.Mesh(skirtGeo, skirtMat);
-    skirt.castShadow = true;
-    skirt.receiveShadow = true;
-    torso.add(skirt);
+    // Collar trim block (v-neck suggestion, flat plate)
+    const collarGeo = new THREE.BoxGeometry(0.15, 0.03, 0.02);
+    const collar = new THREE.Mesh(collarGeo, trimMat);
+    collar.position.set(0, 0.355, 0.085);
+    torso.add(collar);
 
-    // ---- ARMS ----
+    // Waist hem band separating shirt from skirt
+    const hemGeo = new THREE.BoxGeometry(0.20, 0.035, 0.145);
+    hemGeo.translate(0, 0.005, 0);
+    const hem = new THREE.Mesh(hemGeo, shirtMat);
+    hem.castShadow = true;
+    torso.add(hem);
+
+    // Skirt — low-poly flared shape using a low-segment cylinder (hexagonal look)
+    const skirtGeo = new THREE.CylinderGeometry(0.14, 0.24, 0.20, 8, 1, true);
+    skirtGeo.translate(0, -0.11, 0);
+    const skirt = new THREE.Mesh(skirtGeo, skirtMat);
+    skirt.castShadow = true; skirt.receiveShadow = true;
+    torso.add(skirt);
+    // Skirt bottom cap (flat disc so it doesn't look hollow from below)
+    const skirtCapGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.02, 8);
+    skirtCapGeo.translate(0, -0.20, 0);
+    const skirtCap = new THREE.Mesh(skirtCapGeo, skirtMat);
+    torso.add(skirtCap);
+
+    // ============================================================
+    //  ARMS — boxy upper/lower segments, block hand
+    // ============================================================
     function makeArm(side) {
       const shoulder = new THREE.Group();
-      shoulder.position.set(side * 0.155, 0.38, 0);
+      shoulder.position.set(side * 0.155, 0.33, 0);
       torso.add(shoulder);
 
-      // Upper arm (shirt sleeve — short sleeve)
-      const upperGeo = new THREE.CylinderGeometry(0.05, 0.045, 0.10, 8);
-      upperGeo.translate(0, -0.05, 0);
-      const sleeve = new THREE.Mesh(upperGeo, shirtMat);
+      // Short sleeve block
+      const sleeveGeo = new THREE.BoxGeometry(0.085, 0.09, 0.085);
+      sleeveGeo.translate(0, -0.03, 0);
+      const sleeve = new THREE.Mesh(sleeveGeo, shirtMat);
       sleeve.castShadow = true;
       shoulder.add(sleeve);
 
-      // Rest of upper arm — skin
-      const upperSkinGeo = new THREE.CylinderGeometry(0.043, 0.038, 0.14, 8);
-      upperSkinGeo.translate(0, -0.17, 0);
-      const upperSkin = new THREE.Mesh(upperSkinGeo, skinMat);
-      upperSkin.castShadow = true;
-      shoulder.add(upperSkin);
+      // Upper arm — box
+      const upperGeo = new THREE.BoxGeometry(0.062, 0.16, 0.062);
+      upperGeo.translate(0, -0.15, 0);
+      const upperArm = new THREE.Mesh(upperGeo, skinMat);
+      upperArm.castShadow = true;
+      shoulder.add(upperArm);
 
       const elbow = new THREE.Group();
       elbow.position.y = -0.22;
       shoulder.add(elbow);
 
-      // Lower arm — skin
-      const lowerGeo = new THREE.CylinderGeometry(0.036, 0.032, 0.20, 8);
+      // Lower arm — slightly slimmer box
+      const lowerGeo = new THREE.BoxGeometry(0.05, 0.19, 0.05);
       lowerGeo.translate(0, -0.10, 0);
       const lowerArm = new THREE.Mesh(lowerGeo, skinMat);
       lowerArm.castShadow = true;
       elbow.add(lowerArm);
 
-      // Hand
-      const handGeo = new THREE.SphereGeometry(0.045, 8, 6);
+      // Hand — single flat block (no separate fingers, stays low-poly)
+      const handGeo = new THREE.BoxGeometry(0.055, 0.07, 0.035);
       const hand = new THREE.Mesh(handGeo, skinMat);
-      hand.position.y = -0.22;
-      hand.scale.set(1, 1.2, 0.7);
+      hand.position.y = -0.235;
       hand.castShadow = true;
       elbow.add(hand);
 
@@ -1446,67 +1464,93 @@
     const leftArm = makeArm(-1);
     const rightArm = makeArm(1);
 
-    // ---- HEAD ----
+    // ============================================================
+    //  HEAD — boxy anime-low-poly head, flat-plate hair, simple eyes
+    // ============================================================
     const headGroup = new THREE.Group();
     headGroup.position.y = 0.50;
     torso.add(headGroup);
     root.userData.headGroup = headGroup;
 
-    // Neck
-    const neckGeo = new THREE.CylinderGeometry(0.05, 0.055, 0.08, 8);
+    // Neck — box tall & wide enough to bridge chest top and head bottom with clear overlap
+    const neckGeo = new THREE.BoxGeometry(0.075, 0.16, 0.075);
     const neck = new THREE.Mesh(neckGeo, skinMat);
-    neck.position.y = 0.0;
+    neck.position.y = -0.10;
     neck.castShadow = true;
     headGroup.add(neck);
 
-    // Head sphere
-    const headGeo = new THREE.SphereGeometry(0.22, 20, 16);
-    headGeo.scale(1, 1.1, 0.95);
+    // Head — single rounded-box shape (box geometry reads as "low-poly head" cleanly)
+    // Positioned so its base clearly overlaps the top of the neck
+    const headGeo = new THREE.BoxGeometry(0.28, 0.26, 0.26, 2, 2, 2);
     const head = new THREE.Mesh(headGeo, skinMat);
-    head.position.y = 0.19;
+    head.position.y = 0.11;
     head.castShadow = true;
     headGroup.add(head);
 
-    // Hair — main volume
-    const hairMainGeo = new THREE.SphereGeometry(0.235, 20, 16, 0, Math.PI*2, 0, Math.PI * 0.62);
-    const hairMain = new THREE.Mesh(hairMainGeo, hairMat);
-    hairMain.position.y = 0.19;
-    hairMain.scale.set(1.05, 1.15, 1.05);
-    hairMain.castShadow = true;
-    headGroup.add(hairMain);
+    // Hair — big flat-shaded crown block sitting on top/back of head
+    const crownGeo = new THREE.BoxGeometry(0.30, 0.16, 0.28);
+    const crown = new THREE.Mesh(crownGeo, hairMat);
+    crown.position.set(0, 0.23, -0.01);
+    crown.castShadow = true;
+    headGroup.add(crown);
 
-    // Hair — back volume
-    const backHairGeo = new THREE.SphereGeometry(0.22, 16, 12, 0, Math.PI, 0, Math.PI);
+    // Back hair slab (flows down behind neck/shoulders)
+    const backHairGeo = new THREE.BoxGeometry(0.27, 0.40, 0.10);
     const backHair = new THREE.Mesh(backHairGeo, hairMat);
-    backHair.position.y = 0.21;
-    backHair.rotation.y = Math.PI;
-    backHair.scale.set(1.1, 1.3, 1.0);
+    backHair.position.set(0, -0.01, -0.14);
     backHair.castShadow = true;
     headGroup.add(backHair);
 
-    // Twin tails
-    for (let s of [-1, 1]) {
+    // Side hair panels framing face (flat plates, angled slightly)
+    for (const s of [-1, 1]) {
+      const sideGeo = new THREE.BoxGeometry(0.045, 0.34, 0.14);
+      const sidePanel = new THREE.Mesh(sideGeo, hairMat);
+      sidePanel.position.set(s * 0.15, 0.03, 0.02);
+      sidePanel.rotation.z = s * -0.05;
+      sidePanel.castShadow = true;
+      headGroup.add(sidePanel);
+    }
+
+    // Flat angular bangs — a few trapezoid-ish blocks across the forehead
+    const bangDefs = [
+      { x: 0,      w: 0.09, rz: 0 },
+      { x: -0.085, w: 0.075, rz: 0.10 },
+      { x: 0.085,  w: 0.075, rz: -0.10 },
+      { x: -0.15,  w: 0.06, rz: 0.28 },
+      { x: 0.15,   w: 0.06, rz: -0.28 },
+    ];
+    for (const b of bangDefs) {
+      const bangGeo = new THREE.BoxGeometry(b.w, 0.12, 0.06);
+      const bang = new THREE.Mesh(bangGeo, hairMat);
+      bang.position.set(b.x, 0.205, 0.135);
+      bang.rotation.z = b.rz;
+      bang.rotation.x = 0.08;
+      bang.castShadow = true;
+      headGroup.add(bang);
+    }
+
+    // Twin tails — simple stacked boxes (thick → thin) + ribbon torus
+    for (const s of [-1, 1]) {
       const tailGroup = new THREE.Group();
-      tailGroup.position.set(s * 0.20, 0.25, -0.08);
-      tailGroup.rotation.z = s * 0.35;
-      tailGroup.rotation.x = -0.35;
+      tailGroup.position.set(s * 0.185, 0.23, -0.10);
+      tailGroup.rotation.z = s * 0.4;
+      tailGroup.rotation.x = -0.3;
 
-      const tailGeo = new THREE.CylinderGeometry(0.055, 0.085, 0.38, 8);
-      tailGeo.translate(0, -0.19, 0);
-      const tail = new THREE.Mesh(tailGeo, hairMat);
-      tail.castShadow = true;
-      tailGroup.add(tail);
+      const tailTopGeo = new THREE.BoxGeometry(0.075, 0.18, 0.075);
+      tailTopGeo.translate(0, -0.09, 0);
+      const tailTop = new THREE.Mesh(tailTopGeo, hairMat);
+      tailTop.castShadow = true;
+      tailGroup.add(tailTop);
 
-      const tipGeo = new THREE.SphereGeometry(0.075, 8, 6);
-      const tip = new THREE.Mesh(tipGeo, hairMat);
-      tip.position.y = -0.38;
-      tip.castShadow = true;
-      tailGroup.add(tip);
+      const tailBotGeo = new THREE.BoxGeometry(0.055, 0.16, 0.055);
+      tailBotGeo.translate(0, -0.26, 0);
+      const tailBot = new THREE.Mesh(tailBotGeo, hairDkMat);
+      tailBot.castShadow = true;
+      tailGroup.add(tailBot);
 
-      // Ribbon/hair tie
-      const tieGeo = new THREE.TorusGeometry(0.06, 0.018, 6, 12);
-      const tieMat = new THREE.MeshStandardMaterial({ color: 0xe84a6a, roughness: 0.5 });
-      const tie = new THREE.Mesh(tieGeo, tieMat);
+      // Ribbon tie — flat torus, low segment count
+      const tieGeo = new THREE.TorusGeometry(0.055, 0.016, 4, 8);
+      const tie = new THREE.Mesh(tieGeo, ribbonMat);
       tie.rotation.x = Math.PI / 2;
       tailGroup.add(tie);
 
@@ -1514,60 +1558,38 @@
       root.userData['tail' + (s < 0 ? 'L' : 'R')] = tailGroup;
     }
 
-    // Bangs — flat pieces in front
-    for (let i = -1; i <= 1; i++) {
-      const bangGeo = new THREE.BoxGeometry(0.085, 0.13, 0.055);
-      bangGeo.translate(0, -0.065, 0);
-      const bang = new THREE.Mesh(bangGeo, hairMat);
-      bang.position.set(i * 0.095, 0.32, 0.175);
-      bang.rotation.x = 0.12;
-      bang.rotation.z = i * 0.18;
-      bang.castShadow = true;
-      headGroup.add(bang);
-    }
+    // ---- Face: simple flat-plate anime eyes, brows, blush, mouth ----
+    for (const s of [-1, 1]) {
+      // Eye — one flat dark plate (big, low-poly anime eye)
+      const eyeGeo = new THREE.PlaneGeometry(0.075, 0.09);
+      const eye = new THREE.Mesh(eyeGeo, eyeMat);
+      eye.position.set(s * 0.075, 0.11, 0.132);
+      headGroup.add(eye);
 
-    // Eyes — big anime style
-    for (let s of [-1, 1]) {
-      const eyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.042, 10, 8), eyeWhiteMat);
-      eyeWhite.position.set(s * 0.075, 0.17, 0.19);
-      eyeWhite.scale.set(1, 1.3, 0.4);
-      headGroup.add(eyeWhite);
-
-      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.028, 10, 8), eyeIrisMat);
-      iris.position.set(s * 0.078, 0.16, 0.215);
-      iris.scale.set(1, 1.25, 0.3);
-      headGroup.add(iris);
-
-      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 6), eyePupilMat);
-      pupil.position.set(s * 0.078, 0.16, 0.223);
-      pupil.scale.set(1, 1.15, 0.3);
-      headGroup.add(pupil);
-
-      const hl = new THREE.Mesh(new THREE.SphereGeometry(0.009, 6, 4), eyeHighMat);
-      hl.position.set(s * 0.086, 0.178, 0.228);
+      // Highlight — small white square offset in the eye
+      const hlGeo = new THREE.PlaneGeometry(0.022, 0.028);
+      const hl = new THREE.Mesh(hlGeo, eyeHighMat);
+      hl.position.set(s * 0.09, 0.13, 0.133);
       headGroup.add(hl);
 
-      const hl2 = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 4), eyeHighMat);
-      hl2.position.set(s * 0.070, 0.152, 0.228);
-      headGroup.add(hl2);
-
-      // Eyebrow
-      const browGeo = new THREE.BoxGeometry(0.06, 0.012, 0.02);
-      const brow = new THREE.Mesh(browGeo, hairMat);
-      brow.position.set(s * 0.08, 0.25, 0.20);
-      brow.rotation.z = s * -0.15;
+      // Eyebrow — thin flat box
+      const browGeo = new THREE.BoxGeometry(0.07, 0.015, 0.01);
+      const brow = new THREE.Mesh(browGeo, hairDkMat);
+      brow.position.set(s * 0.075, 0.175, 0.135);
+      brow.rotation.z = s * -0.1;
       headGroup.add(brow);
 
-      // Blush
-      const blush = new THREE.Mesh(new THREE.CircleGeometry(0.035, 10), blushMat);
-      blush.position.set(s * 0.13, 0.11, 0.19);
-      blush.rotation.y = s * 0.4;
+      // Blush — flat circle
+      const blushGeo = new THREE.CircleGeometry(0.028, 8);
+      const blush = new THREE.Mesh(blushGeo, blushMat);
+      blush.position.set(s * 0.115, 0.055, 0.128);
       headGroup.add(blush);
     }
 
-    // Mouth
-    const mouth = new THREE.Mesh(new THREE.PlaneGeometry(0.038, 0.012), mouthMat);
-    mouth.position.set(0, 0.075, 0.21);
+    // Mouth — small flat plate
+    const mouthGeo = new THREE.PlaneGeometry(0.03, 0.012);
+    const mouth = new THREE.Mesh(mouthGeo, mouthMat);
+    mouth.position.set(0, 0.025, 0.132);
     headGroup.add(mouth);
 
     // Store anim refs
@@ -1587,6 +1609,7 @@
     scene.add(root);
     return root;
   }
+
 
   // ============================================================
   //  ANIMATION
@@ -1683,7 +1706,7 @@
   //  POST-PROCESSING
   // ============================================================
   function rebuildComposer() {
-    composer = null; renderPass = null; ssaoPass = null;
+    composer = null; renderPass = null;
     bloomPass = null; godraysPass = null;
     composerOk = false;
     if (!state.postOn) return;
@@ -1695,39 +1718,6 @@
       composer.setSize(w, h);
       renderPass = new THREE.RenderPass(scene, camera);
       composer.addPass(renderPass);
-
-      if (state.ssaoOn && typeof THREE.SSAOPass !== 'undefined') {
-        try {
-          ssaoPass = new THREE.SSAOPass(scene, camera, w, h);
-          ssaoPass.kernelRadius = state.ssaoRadius;
-          ssaoPass.minDistance = 0.0015;
-          ssaoPass.maxDistance = 0.1;
-          ssaoPass.kernelSize = 24;
-          if (ssaoPass.blendMaterial) {
-            const bm = ssaoPass.blendMaterial;
-            if (!bm.uniforms.uIntensity) {
-              bm.uniforms.uIntensity = { value: state.ssaoStrength };
-              let fs = bm.fragmentShader || '';
-              if (fs.indexOf('uniform float uIntensity') === -1) {
-                fs = 'uniform float uIntensity;\n' + fs;
-              }
-              fs = fs.replace(
-                'gl_FragColor = diffuseColor * blurColor;',
-                'gl_FragColor = diffuseColor * mix(vec4(1.0), blurColor, uIntensity);'
-              );
-              fs = fs.replace(
-                'gl_FragColor = diffuseColor.rgb * blurColor.rgb;',
-                'gl_FragColor.rgb = diffuseColor.rgb * mix(vec3(1.0), blurColor.rgb, uIntensity);'
-              );
-              bm.fragmentShader = fs;
-              bm.needsUpdate = true;
-            } else {
-              bm.uniforms.uIntensity.value = state.ssaoStrength;
-            }
-          }
-          composer.addPass(ssaoPass);
-        } catch (e) { console.warn('[post] SSAO gagal:', e); ssaoPass = null; }
-      }
 
       if (state.bloomOn) {
         if (typeof THREE.UnrealBloomPass !== 'undefined') {
@@ -2075,25 +2065,12 @@
     const $ = id => document.getElementById(id);
 
     $('togglePost').addEventListener('change', e => { state.postOn = e.target.checked; rebuildComposer(); });
-    $('toggleSSAO').addEventListener('change', e => { state.ssaoOn = e.target.checked; rebuildComposer(); });
     $('toggleBloom').addEventListener('change', e => { state.bloomOn = e.target.checked; rebuildComposer(); });
     $('toggleGodrays').addEventListener('change', e => {
       state.godraysOn = e.target.checked;
       if (godraysPass) godraysPass.uniforms.uEnabled.value = state.godraysOn ? 1 : 0;
     });
 
-    $('ssaoRadius').addEventListener('input', e => {
-      state.ssaoRadius = parseFloat(e.target.value);
-      $('ssaoRadiusVal').textContent = state.ssaoRadius.toFixed(2);
-      if (ssaoPass) ssaoPass.kernelRadius = state.ssaoRadius;
-    });
-    $('ssaoStrength').addEventListener('input', e => {
-      state.ssaoStrength = parseFloat(e.target.value);
-      $('ssaoStrengthVal').textContent = state.ssaoStrength.toFixed(2);
-      if (ssaoPass && ssaoPass.blendMaterial && ssaoPass.blendMaterial.uniforms.uIntensity) {
-        ssaoPass.blendMaterial.uniforms.uIntensity.value = state.ssaoStrength;
-      }
-    });
     $('bloomStrength').addEventListener('input', e => {
       state.bloomStrength = parseFloat(e.target.value);
       $('bloomStrengthVal').textContent = state.bloomStrength.toFixed(2);
