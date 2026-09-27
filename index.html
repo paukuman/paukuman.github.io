@@ -120,7 +120,7 @@
   <div id="hudPlayer">
     <div><b>WASD/Panah</b>: jalan (ikut kamera)</div>
     <div><b>Spasi</b>: loncat</div>
-    <div><b>Drag layar</b>: putar kamera</div>
+    <div id="hudLookHint"><b>Drag layar</b>: putar kamera</div>
     <div><b>Scroll/pinch</b>: zoom</div>
   </div>
   <div id="fpsRow"><b>FPS</b>: <span id="fpsVal">--</span></div>
@@ -137,6 +137,20 @@
 
 <div id="panel">
   <h1>Pengaturan scene</h1>
+
+  <details open>
+    <summary>Kamera &amp; Karakter</summary>
+    <div class="section-body">
+      <div class="toggle-row">
+        <span>Mode First Person</span>
+        <input type="checkbox" id="toggleFirstPerson">
+      </div>
+      <div class="row">
+        <label>Sensitivitas mouse <span class="val" id="mouseSensitivityVal">1.00</span></label>
+        <input type="range" id="mouseSensitivity" min="0.1" max="3" step="0.05" value="1">
+      </div>
+    </div>
+  </details>
 
   <details open>
     <summary>Post-processing</summary>
@@ -412,6 +426,10 @@
   let fogRef;
   let sunMesh, sunGlowMesh;
 
+  // Collision colliders — simple (x, z, radius) circles for trees/rocks, filled in as they're built.
+  // Used only to block player movement; nothing here changes what already renders.
+  let worldColliders = [];
+
   let composer = null;
   let renderPass = null;
   let bloomPass = null;
@@ -459,6 +477,8 @@
     leavesPerTwig: 20,
     timeOfDay: 60,
     playerMode: true,
+    mouseSensitivity: 1.0,
+    cameraView: 'third', // 'third' | 'first' — third-person kept intact, first-person is additive
     postOn: true,
     bloomOn: true,
     bloomStrength: 0.10,
@@ -1247,6 +1267,8 @@
   function rebuildTrees() {
     while (treesGroup.children.length) treesGroup.remove(treesGroup.children[0]);
     allLeafInstances = [];
+    // Clear only tree colliders (rocks are rebuilt separately and keep their own entries)
+    worldColliders = worldColliders.filter(c => c.type !== 'tree');
     const count = state.treeCount;
     const half = 26;
     let placed = 0, attempts = 0;
@@ -1258,6 +1280,7 @@
       if (Math.sqrt(x*x+z*z) < 3) continue;
       const scale = 0.7 + Math.random()*0.8;
       treesGroup.add(makeTree(x, z, scale));
+      worldColliders.push({ type: 'tree', x, z, radius: 0.35 * scale });
       placed++;
     }
     buildLeafInstances();
@@ -1270,6 +1293,7 @@
       if (stoneTexture) rockMatCache.map = stoneTexture;
       else rockMatCache.color.set(0x777669);
     }
+    worldColliders = worldColliders.filter(c => c.type !== 'rock');
     for (let i = 0; i < 10; i++) {
       const x = (Math.random()*2-1) * 24;
       const z = (Math.random()*2-1) * 24;
@@ -1277,10 +1301,15 @@
       const s = 0.3 + Math.random()*0.6;
       const geo = new THREE.DodecahedronGeometry(s, 0);
       const rock = new THREE.Mesh(geo, rockMatCache);
-      rock.position.set(x, sampleTerrainHeight(x, z) + s*0.3, z);
+      const rockGroundY = sampleTerrainHeight(x, z);
+      const rockCenterY = rockGroundY + s*0.3;
+      rock.position.set(x, rockCenterY, z);
       rock.rotation.set(Math.random(), Math.random(), Math.random());
       rock.castShadow = true; rock.receiveShadow = true;
       rockGroup.add(rock);
+      // topY: approx height of the rock's peak, used so the player can stand on top
+      // instead of being blocked once they've climbed/jumped above it.
+      worldColliders.push({ type: 'rock', x, z, radius: s * 0.85, topY: rockCenterY + s, groundY: rockGroundY });
     }
     scene.add(rockGroup);
   }
@@ -1372,7 +1401,7 @@
       sole.castShadow = true; sole.receiveShadow = true;
       shoeGroup.add(sole);
 
-      root.add(hip); // legs attached to root (don't bob with bodyRoot)
+      bodyRoot.add(hip); // legs attached to bodyRoot so hips/torso/skirt bob & lean together — no gap at the waist during run/jump
       return { hip, knee };
     }
     const leftLeg = makeLeg(-1);
@@ -1675,9 +1704,12 @@
 
     // Arm-away-from-body: 0 when fully idle (arms rest against sides),
     // easing out a little as movement starts, more as it builds toward a full run.
+    // leftArm's shoulder group sits at local X < 0, rightArm's at X > 0 — to swing
+    // the lower arm away from the body's centerline (not toward it, which caused a
+    // V-shaped clip through the torso), each side needs the opposite rotation sign.
     const armOut = run * run; // eases in gently at low run, grows faster near full speed
-    ud.leftArm.shoulder.rotation.z = armOut * 0.32 + jump * 0.5;
-    ud.rightArm.shoulder.rotation.z = -(armOut * 0.32 + jump * 0.5);
+    ud.leftArm.shoulder.rotation.z = -(armOut * 0.55 + jump * 0.6);
+    ud.rightArm.shoulder.rotation.z = armOut * 0.55 + jump * 0.6;
 
     // Elbow bend — stays near-straight at idle, bends more as pace picks up
     const elbowBend = -(run * 0.65 + jump * 0.35);
@@ -1833,18 +1865,37 @@
   function setupPlayerCameraDrag() {
     const dom = renderer.domElement;
     let dragging = false, lastX = 0, lastY = 0, dragPointerId = null;
+
+    function applyLook(dx, dy) {
+      const sens = state.mouseSensitivity * 0.006;
+      playerCamOrbit.theta -= dx * sens;
+      playerCamOrbit.phi -= dy * sens;
+      // Third-person keeps its original tight orbit range; first-person allows
+      // looking much further up/down (near-vertical) so the player can look at the ground.
+      if (state.cameraView === 'first') {
+        playerCamOrbit.phi = Math.max(0.05, Math.min(Math.PI - 0.05, playerCamOrbit.phi));
+      } else {
+        playerCamOrbit.phi = Math.max(0.5, Math.min(Math.PI/2 - 0.05, playerCamOrbit.phi));
+      }
+    }
+
+    // ---- Third-person: original click-and-drag behavior, unchanged ----
     dom.addEventListener('pointerdown', (e) => {
       if (e.target.id === 'joystickZone' || e.target.id === 'joystickThumb' || e.target.id === 'jumpBtn') return;
+      if (state.cameraView === 'first') {
+        // In first-person, a click's job is to (re)acquire pointer lock, not start a drag.
+        if (document.pointerLockElement !== dom) dom.requestPointerLock();
+        return;
+      }
       dragging = true; dragPointerId = e.pointerId;
       lastX = e.clientX; lastY = e.clientY;
     });
     window.addEventListener('pointermove', (e) => {
+      if (state.cameraView === 'first') return; // handled by the pointer-lock listener below
       if (!dragging || e.pointerId !== dragPointerId) return;
       const dx = e.clientX - lastX, dy = e.clientY - lastY;
       lastX = e.clientX; lastY = e.clientY;
-      playerCamOrbit.theta -= dx * 0.006;
-      playerCamOrbit.phi -= dy * 0.006;
-      playerCamOrbit.phi = Math.max(0.5, Math.min(Math.PI/2 - 0.05, playerCamOrbit.phi));
+      applyLook(dx, dy);
     });
     window.addEventListener('pointerup', (e) => {
       if (e.pointerId === dragPointerId) { dragging = false; dragPointerId = null; }
@@ -1854,6 +1905,60 @@
       playerCamOrbit.radius += e.deltaY * 0.01;
       playerCamOrbit.radius = Math.max(2.5, Math.min(12, playerCamOrbit.radius));
     }, { passive: false });
+
+    // ---- First-person: pointer lock, mouse-look follows movement directly (no held click) ----
+    document.addEventListener('mousemove', (e) => {
+      if (document.pointerLockElement !== dom) return;
+      applyLook(e.movementX || 0, e.movementY || 0);
+    });
+    document.addEventListener('pointerlockchange', () => {
+      // If the browser/user exits pointer lock (Esc, alt-tab, etc.) while still in
+      // first-person, that's fine — a click on the canvas re-acquires it (see above).
+    });
+  }
+
+  function exitPointerLock() {
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
+
+  // Resolve simple circle-vs-circle collisions between the player and world colliders
+  // (trees, rocks). Pushes the player's x/z straight out along the shortest overlap
+  // direction — cheap, stable, and enough for a low-poly walk-around scene.
+  // Colliders with a topY (rocks) are skipped once the player's feet are already at
+  // or above that height, so climbing/jumping onto a rock lets you stand on it
+  // instead of being pushed off sideways.
+  function resolveWorldCollisions(obj, selfRadius) {
+    for (let i = 0; i < worldColliders.length; i++) {
+      const c = worldColliders[i];
+      if (c.topY !== undefined && obj.position.y >= c.topY - 0.08) continue;
+      const dx = obj.position.x - c.x;
+      const dz = obj.position.z - c.z;
+      const distSq = dx * dx + dz * dz;
+      const minDist = c.radius + selfRadius;
+      if (distSq < minDist * minDist && distSq > 0.000001) {
+        const dist = Math.sqrt(distSq);
+        const overlap = minDist - dist;
+        const nx = dx / dist, nz = dz / dist;
+        obj.position.x += nx * overlap;
+        obj.position.z += nz * overlap;
+      }
+    }
+  }
+
+  // Ground height at (x, z), taking the tallest rock the point falls inside into
+  // account as well as the terrain — lets the player stand on top of a rock instead
+  // of always sinking back down to the terrain underneath it.
+  function effectiveGroundHeight(x, z) {
+    let y = sampleTerrainHeight(x, z);
+    for (let i = 0; i < worldColliders.length; i++) {
+      const c = worldColliders[i];
+      if (c.topY === undefined) continue; // only rocks are climbable surfaces
+      const dx = x - c.x, dz = z - c.z;
+      if (dx*dx + dz*dz <= c.radius * c.radius) {
+        y = Math.max(y, c.topY);
+      }
+    }
+    return y;
   }
 
   function updatePlayer(dt) {
@@ -1886,7 +1991,17 @@
       player.rotation.y = player.userData.facingAngle;
     }
 
-    const groundY = sampleTerrainHeight(player.position.x, player.position.z);
+    const half = 28;
+    player.position.x = Math.max(-half, Math.min(half, player.position.x));
+    player.position.z = Math.max(-half, Math.min(half, player.position.z));
+
+    // Push player out of any tree/rock collider it's overlapping (simple circle-vs-circle resolve).
+    // Uses the player's current height to decide whether a rock should still block sideways
+    // movement or has already been "climbed" (see resolveWorldCollisions / topY).
+    resolveWorldCollisions(player, 0.28);
+
+    // Ground height at the (possibly collision-adjusted) x/z — accounts for standing on a rock.
+    const groundY = effectiveGroundHeight(player.position.x, player.position.z);
     const atGround = player.position.y <= groundY + 0.02;
 
     if (keys.jump && atGround) player.userData.velY = PLAYER_JUMP_SPEED;
@@ -1897,22 +2012,51 @@
       player.userData.velY = 0;
     }
 
-    const half = 28;
-    player.position.x = Math.max(-half, Math.min(half, player.position.x));
-    player.position.z = Math.max(-half, Math.min(half, player.position.z));
+    // Camera follow — third-person (orbit) kept as-is; first-person is an additive branch
+    if (state.cameraView === 'first') {
+      // Eye position: roughly at the character's head height, following body bob/lean
+      const eyeHeight = 1.55;
+      const headWorldPos = new THREE.Vector3();
+      if (player.userData.headGroup) {
+        player.userData.headGroup.getWorldPosition(headWorldPos);
+      } else {
+        headWorldPos.set(player.position.x, player.position.y + eyeHeight, player.position.z);
+      }
+      camera.position.copy(headWorldPos);
 
-    // Camera follow
-    const target = new THREE.Vector3(
-      player.position.x,
-      player.position.y + 1.1,
-      player.position.z
-    );
-    const r = playerCamOrbit.radius;
-    const camX = target.x + r * Math.sin(playerCamOrbit.phi) * Math.sin(playerCamOrbit.theta);
-    const camY = target.y + r * Math.cos(playerCamOrbit.phi);
-    const camZ = target.z + r * Math.sin(playerCamOrbit.phi) * Math.cos(playerCamOrbit.theta);
-    camera.position.set(camX, camY, camZ);
-    camera.lookAt(target);
+      // Look direction driven by the same orbit theta/phi used in third-person,
+      // so dragging to look around still works identically in both modes.
+      // phi shrinks when the mouse is dragged downward (see the drag handler above);
+      // pitch must shrink too (go negative) in that case so the camera looks down at
+      // the ground instead of up at the sky — hence pitch = phi - PI/2, not the reverse.
+      const yaw = playerCamOrbit.theta + Math.PI; // +PI: orbit theta is defined behind the character in third-person
+      const pitch = playerCamOrbit.phi - (Math.PI / 2);
+      const lookDir = new THREE.Vector3(
+        Math.sin(yaw) * Math.cos(pitch),
+        Math.sin(pitch),
+        Math.cos(yaw) * Math.cos(pitch)
+      );
+      const lookTarget = headWorldPos.clone().add(lookDir);
+      camera.lookAt(lookTarget);
+
+      // Hide the body mesh so it doesn't clip/obstruct the view from inside the head,
+      // but keep the group (and its userData/animation) fully intact for third-person.
+      player.traverse(obj => { if (obj.isMesh) obj.visible = false; });
+    } else {
+      player.traverse(obj => { if (obj.isMesh) obj.visible = true; });
+
+      const target = new THREE.Vector3(
+        player.position.x,
+        player.position.y + 1.1,
+        player.position.z
+      );
+      const r = playerCamOrbit.radius;
+      const camX = target.x + r * Math.sin(playerCamOrbit.phi) * Math.sin(playerCamOrbit.theta);
+      const camY = target.y + r * Math.cos(playerCamOrbit.phi);
+      const camZ = target.z + r * Math.sin(playerCamOrbit.phi) * Math.cos(playerCamOrbit.theta);
+      camera.position.set(camX, camY, camZ);
+      camera.lookAt(target);
+    }
 
     // Animate character
     animatePlayer(dt);
@@ -2067,6 +2211,24 @@
     const $ = id => document.getElementById(id);
 
     $('togglePost').addEventListener('change', e => { state.postOn = e.target.checked; rebuildComposer(); });
+    $('toggleFirstPerson').addEventListener('change', e => {
+      state.cameraView = e.target.checked ? 'first' : 'third';
+      const hint = document.getElementById('hudLookHint');
+      if (hint) {
+        hint.innerHTML = state.cameraView === 'first'
+          ? '<b>Klik layar</b>: kunci mouse, lalu gerakkan untuk menoleh'
+          : '<b>Drag layar</b>: putar kamera';
+      }
+      // Re-sync orbit so third-person doesn't snap oddly when switching back
+      if (state.cameraView === 'third') {
+        player.traverse(obj => { if (obj.isMesh) obj.visible = true; });
+        exitPointerLock();
+      }
+    });
+    $('mouseSensitivity').addEventListener('input', e => {
+      state.mouseSensitivity = parseFloat(e.target.value);
+      $('mouseSensitivityVal').textContent = state.mouseSensitivity.toFixed(2);
+    });
     $('toggleBloom').addEventListener('change', e => { state.bloomOn = e.target.checked; rebuildComposer(); });
     $('toggleGodrays').addEventListener('change', e => {
       state.godraysOn = e.target.checked;
