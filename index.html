@@ -131,6 +131,7 @@
     <div id="joystickThumb" style="position:absolute; left:35px; top:35px; width:50px; height:50px; border-radius:50%; background:rgba(255,255,255,0.35); border:1px solid rgba(255,255,255,0.5);"></div>
   </div>
   <button id="jumpBtn" style="position:absolute; right:24px; bottom:32px; width:70px; height:70px; border-radius:50%; background:rgba(127,216,143,0.35); border:1px solid rgba(255,255,255,0.5); color:#eef2ea; font-size:12px; font-weight:600; pointer-events:auto; touch-action:none;">LONCAT</button>
+  <div id="lookZone" style="display:none; position:absolute; right:0; top:0; bottom:110px; left:45%; pointer-events:auto; touch-action:none;"></div>
 </div>
 
 <div id="panelToggle" class="active" title="Sembunyikan/tampilkan pengaturan">⚙</div>
@@ -145,6 +146,7 @@
         <span>Mode First Person</span>
         <input type="checkbox" id="toggleFirstPerson">
       </div>
+      <div style="font-size:10px; color:var(--text-dim); margin:-4px 0 8px;">Di HP: geser sisi kanan layar untuk menoleh. Di desktop: klik layar lalu gerakkan mouse.</div>
       <div class="row">
         <label>Sensitivitas mouse <span class="val" id="mouseSensitivityVal">1.00</span></label>
         <input type="range" id="mouseSensitivity" min="0.1" max="3" step="0.05" value="1">
@@ -232,13 +234,18 @@
         <input type="range" id="shadowSoft" min="0" max="8" step="1" value="8">
       </div>
       <hr>
+      <div class="toggle-row">
+        <span>Kunci arah matahari manual</span>
+        <input type="checkbox" id="toggleSunManual">
+      </div>
+      <div style="font-size:10px; color:var(--text-dim); margin:-4px 0 8px;">Kalau dimatikan (default), posisi matahari mengikuti waktu siang/malam otomatis di bawah.</div>
       <div class="row">
         <label>Ketinggian matahari <span class="val" id="sunHeightVal">45°</span></label>
-        <input type="range" id="sunHeight" min="10" max="85" step="1" value="45">
+        <input type="range" id="sunHeight" min="-15" max="85" step="1" value="45" disabled>
       </div>
       <div class="row">
         <label>Arah matahari <span class="val" id="sunAngleVal">30°</span></label>
-        <input type="range" id="sunAngle" min="0" max="360" step="1" value="30">
+        <input type="range" id="sunAngle" min="0" max="360" step="1" value="30" disabled>
       </div>
       <div class="row">
         <label>Ukuran matahari <span class="val" id="sunSizeVal">0.75</span></label>
@@ -316,9 +323,17 @@
         <input type="range" id="windStrength" min="0" max="3" step="0.1" value="1">
       </div>
       <hr>
+      <div class="toggle-row">
+        <span>Siklus siang-malam otomatis</span>
+        <input type="checkbox" id="toggleAutoTime" checked>
+      </div>
+      <div class="row">
+        <label>Kecepatan siklus <span class="val" id="timeSpeedVal">1.0</span></label>
+        <input type="range" id="timeSpeed" min="0.1" max="10" step="0.1" value="1.0">
+      </div>
       <div class="row">
         <label>Waktu (siang/malam) <span class="val" id="timeOfDayVal">Siang</span></label>
-        <input type="range" id="timeOfDay" min="0" max="100" step="1" value="60">
+        <input type="range" id="timeOfDay" min="0" max="100" step="0.1" value="60">
       </div>
     </div>
   </details>
@@ -430,6 +445,18 @@
   // Used only to block player movement; nothing here changes what already renders.
   let worldColliders = [];
 
+  // ============================================================
+  //  WORLD SIZE — single source of truth for map scale.
+  //  Bumping this enlarges terrain, water reach, fog distance, the
+  //  boundary fence, camera limits, and every scatter radius below.
+  // ============================================================
+  const WORLD_SIZE = 140;       // terrain plane size (was 60)
+  const WORLD_HALF = WORLD_SIZE / 2;
+  const PLAY_HALF = WORLD_HALF - 4; // keep scatter/props a little inside the fence
+  const FENCE_HALF = WORLD_HALF - 3; // player movement clamp + fence line
+  let fenceGroup = null;
+  let propsGroup = null;
+
   let composer = null;
   let renderPass = null;
   let bloomPass = null;
@@ -495,8 +522,13 @@
     grassOn: true,
     grassCount: 1500,
     grassHeight: 1.0,
-    grassPatches: 20
+    grassPatches: 20,
+    autoTimeOn: true,
+    timeSpeed: 1.0,
+    sunManual: false
   };
+
+  const DAY_CYCLE_SECONDS = 120; // real seconds for one full day-night loop at timeSpeed = 1.0
 
   const shadowMapSizes = [512, 1024, 2048];
 
@@ -612,8 +644,8 @@
   function init() {
     scene = new THREE.Scene();
 
-    camera = new THREE.PerspectiveCamera(55, wrap.clientWidth / wrap.clientHeight, 0.1, 500);
-    camera.position.set(18, 12, 22);
+    camera = new THREE.PerspectiveCamera(55, wrap.clientWidth / wrap.clientHeight, 0.1, 1000);
+    camera.position.set(30, 18, 36);
 
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -633,12 +665,12 @@
 
     sun = new THREE.DirectionalLight(0xfff2d6, 1.1);
     sun.castShadow = true;
-    sun.shadow.camera.left = -30;
-    sun.shadow.camera.right = 30;
-    sun.shadow.camera.top = 30;
-    sun.shadow.camera.bottom = -30;
+    sun.shadow.camera.left = -55;
+    sun.shadow.camera.right = 55;
+    sun.shadow.camera.top = 55;
+    sun.shadow.camera.bottom = -55;
     sun.shadow.camera.near = 1;
-    sun.shadow.camera.far = 80;
+    sun.shadow.camera.far = 160;
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.02;
     scene.add(sun);
@@ -669,6 +701,8 @@
 
     buildRocks();
     buildGrass();
+    buildFence();
+    buildProps();
 
     player = buildPlayer();
     player.visible = true;
@@ -740,7 +774,7 @@
   //  TERRAIN
   // ============================================================
   function buildTerrain() {
-    const size = 60, segments = 100;
+    const size = WORLD_SIZE, segments = 180;
     const geo = new THREE.PlaneGeometry(size, size, segments, segments);
     geo.rotateX(-Math.PI / 2);
 
@@ -996,8 +1030,8 @@
     let attempts = 0;
     while (patches.length < patchCount && attempts < patchCount * 20) {
       attempts++;
-      const px = (Math.random() * 2 - 1) * 24;
-      const pz = (Math.random() * 2 - 1) * 24;
+      const px = (Math.random() * 2 - 1) * PLAY_HALF;
+      const pz = (Math.random() * 2 - 1) * PLAY_HALF;
       if (isInLake(px, pz)) continue;
       let tooClose = false;
       for (let i = 0; i < patches.length; i++) {
@@ -1270,7 +1304,7 @@
     // Clear only tree colliders (rocks are rebuilt separately and keep their own entries)
     worldColliders = worldColliders.filter(c => c.type !== 'tree');
     const count = state.treeCount;
-    const half = 26;
+    const half = PLAY_HALF;
     let placed = 0, attempts = 0;
     while (placed < count && attempts < count * 8) {
       attempts++;
@@ -1294,9 +1328,9 @@
       else rockMatCache.color.set(0x777669);
     }
     worldColliders = worldColliders.filter(c => c.type !== 'rock');
-    for (let i = 0; i < 10; i++) {
-      const x = (Math.random()*2-1) * 24;
-      const z = (Math.random()*2-1) * 24;
+    for (let i = 0; i < 22; i++) {
+      const x = (Math.random()*2-1) * PLAY_HALF;
+      const z = (Math.random()*2-1) * PLAY_HALF;
       if (isInLake(x, z)) continue;
       const s = 0.3 + Math.random()*0.6;
       const geo = new THREE.DodecahedronGeometry(s, 0);
@@ -1312,6 +1346,346 @@
       worldColliders.push({ type: 'rock', x, z, radius: s * 0.85, topY: rockCenterY + s, groundY: rockGroundY });
     }
     scene.add(rockGroup);
+  }
+
+  // ============================================================
+  //  BOUNDARY FENCE — simple wooden post-and-rail ring marking the
+  //  edge of the playable world (matches the player-movement clamp).
+  // ============================================================
+  function buildFence() {
+    if (fenceGroup) { scene.remove(fenceGroup); fenceGroup = null; }
+    fenceGroup = new THREE.Group();
+
+    const postMat = new THREE.MeshStandardMaterial({
+      color: 0x6b4a34, roughness: 0.95, metalness: 0.0
+    });
+    if (woodTexture) postMat.map = woodTexture;
+    const railMat = new THREE.MeshStandardMaterial({
+      color: 0x7a5a40, roughness: 0.9, metalness: 0.0
+    });
+    if (woodTexture) railMat.map = woodTexture;
+
+    const postGeo = new THREE.CylinderGeometry(0.09, 0.11, 1.3, 6);
+    const railGeo = new THREE.BoxGeometry(1, 0.09, 0.06);
+
+    const half = FENCE_HALF;
+    const spacing = 2.6;
+    const perSide = Math.ceil((half * 2) / spacing);
+
+    function addPost(x, z) {
+      const y = sampleTerrainHeight(x, z);
+      const post = new THREE.Mesh(postGeo, postMat);
+      post.position.set(x, y + 0.65, z);
+      post.castShadow = true; post.receiveShadow = true;
+      fenceGroup.add(post);
+      return y;
+    }
+    function addRailsBetween(x1, z1, y1, x2, z2, y2) {
+      const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
+      const dx = x2 - x1, dz = z2 - z1;
+      const len = Math.sqrt(dx*dx + dz*dz);
+      const angle = Math.atan2(dz, dx);
+      [0.95, 0.55].forEach(hOff => {
+        const rail = new THREE.Mesh(railGeo, railMat);
+        rail.scale.set(len, 1, 1);
+        rail.position.set(mx, ((y1 + y2) / 2) + hOff, mz);
+        rail.rotation.y = -angle;
+        rail.castShadow = true; rail.receiveShadow = true;
+        fenceGroup.add(rail);
+      });
+    }
+
+    // Build one side at a time so rails connect consecutive posts.
+    function buildSide(getPoint) {
+      let prev = null;
+      for (let i = 0; i <= perSide; i++) {
+        const t = (i / perSide) * 2 - 1; // -1..1
+        const [x, z] = getPoint(t * half);
+        const y = addPost(x, z);
+        if (prev) addRailsBetween(prev.x, prev.z, prev.y, x, z, y);
+        prev = { x, y, z };
+      }
+    }
+
+    buildSide(t => [t, -half]);  // north edge
+    buildSide(t => [t, half]);   // south edge
+    buildSide(t => [-half, t]);  // west edge
+    buildSide(t => [half, t]);   // east edge
+
+    scene.add(fenceGroup);
+
+    // Fence colliders keep the player from clipping through posts even if the
+    // hard position clamp in updatePlayer is ever loosened.
+    for (let i = -perSide; i <= perSide; i++) {
+      const t = (i / perSide) * half;
+      worldColliders.push({ type: 'fence', x: t, z: -half, radius: 0.16 });
+      worldColliders.push({ type: 'fence', x: t, z: half, radius: 0.16 });
+      worldColliders.push({ type: 'fence', x: -half, z: t, radius: 0.16 });
+      worldColliders.push({ type: 'fence', x: half, z: t, radius: 0.16 });
+    }
+  }
+
+  // ============================================================
+  //  WORLD PROPS — abandoned house, ruined building, broken car.
+  //  Low-poly / flat-shaded to match the rocks & trees, built from
+  //  primitives so no extra texture files are needed.
+  // ============================================================
+  let propMatCache = null;
+  function getPropMats() {
+    if (propMatCache) return propMatCache;
+    propMatCache = {
+      woodWall:  new THREE.MeshStandardMaterial({ color: 0x8a7256, roughness: 0.95, map: woodTexture || null }),
+      woodDark:  new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 0.95 }),
+      roofRust:  new THREE.MeshStandardMaterial({ color: 0x6b4335, roughness: 0.85, metalness: 0.15, flatShading: true }),
+      concrete:  new THREE.MeshStandardMaterial({ color: 0x8f8c82, roughness: 0.95, flatShading: true }),
+      concreteDark: new THREE.MeshStandardMaterial({ color: 0x625f58, roughness: 0.95, flatShading: true }),
+      brokenGlassFrame: new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 0.8 }),
+      carBodyRust: new THREE.MeshStandardMaterial({ color: 0x7a3a2a, roughness: 0.8, metalness: 0.25, flatShading: true }),
+      carBodyFaded: new THREE.MeshStandardMaterial({ color: 0x5b6b6e, roughness: 0.85, metalness: 0.2, flatShading: true }),
+      tire: new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.9 }),
+      rim: new THREE.MeshStandardMaterial({ color: 0x555550, roughness: 0.6, metalness: 0.4 }),
+      glassBroken: new THREE.MeshStandardMaterial({ color: 0x9fc4c9, roughness: 0.3, transparent: true, opacity: 0.35 }),
+      rebar: new THREE.MeshStandardMaterial({ color: 0x3a3530, roughness: 0.7, metalness: 0.3 })
+    };
+    return propMatCache;
+  }
+
+  function addPropCollider(x, z, radius) {
+    worldColliders.push({ type: 'prop', x, z, radius });
+  }
+
+  // ---- Rumah terbengkalai (abandoned house) ----
+  function makeAbandonedHouse(x, z, rotY) {
+    const g = new THREE.Group();
+    const M = getPropMats();
+    const y0 = sampleTerrainHeight(x, z);
+
+    const w = 4.2, d = 3.4, h = 2.4;
+    const wallGeo = new THREE.BoxGeometry(w, h, d);
+    const walls = new THREE.Mesh(wallGeo, M.woodWall);
+    walls.position.set(0, h/2, 0);
+    walls.castShadow = true; walls.receiveShadow = true;
+    g.add(walls);
+
+    // A missing chunk of wall / caved-in corner for the "abandoned" look
+    const holeGeo = new THREE.BoxGeometry(1.2, 1.4, 0.4);
+    const hole = new THREE.Mesh(holeGeo, M.woodDark);
+    hole.position.set(w/2 - 0.6, 0.9, d/2 - 0.3);
+    g.add(hole);
+
+    // Sagging roof (two angled panels, one slightly collapsed)
+    const roofGeo = new THREE.BoxGeometry(w * 0.62, 0.12, 2.6);
+    const roofL = new THREE.Mesh(roofGeo, M.roofRust);
+    roofL.position.set(-w*0.27, h + 0.55, 0);
+    roofL.rotation.z = THREE.MathUtils.degToRad(24);
+    roofL.castShadow = true;
+    g.add(roofL);
+    const roofR = new THREE.Mesh(roofGeo, M.roofRust);
+    roofR.position.set(w*0.30, h + 0.35, 0.1);
+    roofR.rotation.z = THREE.MathUtils.degToRad(-16); // collapsed side, sagging lower
+    roofR.rotation.x = THREE.MathUtils.degToRad(4);
+    roofR.castShadow = true;
+    g.add(roofR);
+
+    // Doorway opening (dark inset) + broken door hanging on one hinge
+    const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.7, 0.42), M.brokenGlassFrame);
+    doorFrame.position.set(0, 0.85, d/2 + 0.02);
+    g.add(doorFrame);
+    const door = new THREE.Mesh(new THREE.BoxGeometry(0.75, 1.55, 0.06), M.woodDark);
+    door.position.set(-0.35, 0.78, d/2 + 0.25);
+    door.rotation.y = THREE.MathUtils.degToRad(35);
+    door.castShadow = true;
+    g.add(door);
+
+    // Broken window
+    const winFrame = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.1), M.woodDark);
+    winFrame.position.set(-w/2 - 0.03, 1.3, 0);
+    winFrame.rotation.y = Math.PI/2;
+    g.add(winFrame);
+    const glassShard = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.4), M.glassBroken);
+    glassShard.position.set(-w/2 - 0.02, 1.45, 0.05);
+    glassShard.rotation.y = Math.PI/2;
+    g.add(glassShard);
+
+    // A couple of loose wood planks leaning against the wall
+    for (let i = 0; i < 2; i++) {
+      const plank = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.0, 0.35), M.woodDark);
+      plank.position.set(w/2 + 0.15, 1.0, -d/2 + 0.6 + i*0.5);
+      plank.rotation.z = THREE.MathUtils.degToRad(12 + i*4);
+      plank.castShadow = true;
+      g.add(plank);
+    }
+
+    g.position.set(x, y0, z);
+    g.rotation.y = rotY;
+    addPropCollider(x, z, Math.max(w, d) / 2 + 0.3);
+    return g;
+  }
+
+  // ---- Gedung terbengkalai (abandoned multi-storey building shell) ----
+  function makeAbandonedBuilding(x, z, rotY) {
+    const g = new THREE.Group();
+    const M = getPropMats();
+    const y0 = sampleTerrainHeight(x, z);
+
+    const w = 6.5, d = 5.5, floorH = 2.6, floors = 3;
+    const totalH = floorH * floors;
+
+    const shell = new THREE.Mesh(new THREE.BoxGeometry(w, totalH, d), M.concrete);
+    shell.position.set(0, totalH/2, 0);
+    shell.castShadow = true; shell.receiveShadow = true;
+    g.add(shell);
+
+    // Punch irregular window/collapse holes into the face using darker inset blocks
+    const rand = (seed) => { const x = Math.sin(seed*999) * 10000; return x - Math.floor(x); };
+    let seed = (x + z) * 3.1;
+    for (let f = 0; f < floors; f++) {
+      for (let c = 0; c < 3; c++) {
+        seed += 1;
+        if (rand(seed) < 0.25) continue; // some windows stay "solid"/dark, skip
+        const hw = 0.55 + rand(seed+1) * 0.25;
+        const hh = 0.8 + rand(seed+2) * 0.4;
+        const hole = new THREE.Mesh(new THREE.BoxGeometry(hw, hh, 0.3), M.brokenGlassFrame);
+        hole.position.set(-w/2 + 1.1 + c * 2.1, 0.9 + f * floorH, d/2 + 0.02);
+        g.add(hole);
+      }
+    }
+
+    // Collapsed top-right corner: missing chunk + exposed rebar
+    const missing = new THREE.Mesh(new THREE.BoxGeometry(2.4, floorH * 1.1, d * 0.5), M.concreteDark);
+    missing.position.set(w/2 - 1.1, totalH - floorH*0.55, -d/4);
+    g.add(missing); // slightly darker block reads as shadowed collapse from outside silhouette
+    for (let i = 0; i < 5; i++) {
+      seed += 1;
+      const rebar = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.1 + rand(seed)*0.8, 5), M.rebar);
+      rebar.position.set(w/2 - 0.2 + rand(seed+1)*0.6, totalH - 0.3, -d/4 + (rand(seed+2)*2-1)*1.2);
+      rebar.rotation.z = (rand(seed+3)*2-1) * 0.5;
+      rebar.rotation.x = (rand(seed+4)*2-1) * 0.5;
+      g.add(rebar);
+    }
+
+    // Rubble pile at the base near the collapse
+    for (let i = 0; i < 6; i++) {
+      seed += 1;
+      const s = 0.25 + rand(seed) * 0.35;
+      const chunk = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), M.concreteDark);
+      chunk.position.set(w/2 - 1.0 + (rand(seed+1)*2-1)*1.3, s*0.5, d/2 + 0.8 + rand(seed+2)*1.2);
+      chunk.rotation.set(rand(seed+3)*6, rand(seed+4)*6, rand(seed+5)*6);
+      chunk.castShadow = true; chunk.receiveShadow = true;
+      g.add(chunk);
+    }
+
+    // Doorway opening
+    const door = new THREE.Mesh(new THREE.BoxGeometry(1.3, 2.0, 0.4), M.brokenGlassFrame);
+    door.position.set(-1.2, 1.0, d/2 + 0.02);
+    g.add(door);
+
+    g.position.set(x, y0, z);
+    g.rotation.y = rotY;
+    addPropCollider(x, z, Math.max(w, d) / 2 + 0.6);
+    return g;
+  }
+
+  // ---- Mobil rusak (broken-down rusted car) ----
+  function makeBrokenCar(x, z, rotY) {
+    const g = new THREE.Group();
+    const M = getPropMats();
+    const y0 = sampleTerrainHeight(x, z);
+    const bodyMat = Math.random() < 0.5 ? M.carBodyRust : M.carBodyFaded;
+
+    const bodyLower = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.55, 0.95), bodyMat);
+    bodyLower.position.set(0, 0.5, 0);
+    bodyLower.castShadow = true; bodyLower.receiveShadow = true;
+    g.add(bodyLower);
+
+    const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.5, 0.88), bodyMat);
+    cabin.position.set(-0.15, 0.98, 0);
+    cabin.castShadow = true;
+    g.add(cabin);
+
+    // Crumpled/dented hood — slight rotation + offset box reads as impact damage
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.4, 0.9), bodyMat);
+    hood.position.set(0.75, 0.68, 0);
+    hood.rotation.z = THREE.MathUtils.degToRad(-9);
+    hood.castShadow = true;
+    g.add(hood);
+
+    // Cracked windshield remnants
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 0.4), M.glassBroken);
+    glass.position.set(0.25, 1.05, 0.45);
+    glass.rotation.set(THREE.MathUtils.degToRad(-60), 0, 0);
+    g.add(glass);
+
+    // Wheels — one missing (axle exposed) for extra "abandoned" detail
+    const wheelPositions = [
+      [0.62, 0.28, 0.5], [0.62, 0.28, -0.5], [-0.62, 0.28, -0.5]
+    ];
+    wheelPositions.forEach(p => {
+      const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.22, 12), M.tire);
+      tire.rotation.x = Math.PI/2;
+      tire.position.set(p[0], p[1], p[2]);
+      tire.castShadow = true;
+      g.add(tire);
+      const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.24, 8), M.rim);
+      rim.rotation.x = Math.PI/2;
+      rim.position.set(p[0], p[1], p[2]);
+      g.add(rim);
+    });
+    // Exposed axle stub where the 4th wheel is missing
+    const axle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.5, 6), M.rim);
+    axle.rotation.z = Math.PI/2;
+    axle.position.set(-0.62, 0.26, 0);
+    g.add(axle);
+    // That corner of the car sags toward the ground without its wheel
+    bodyLower.position.y = 0.5;
+    bodyLower.rotation.z = THREE.MathUtils.degToRad(-4);
+    cabin.rotation.z = THREE.MathUtils.degToRad(-4);
+
+    // Rust streak patches (flat dark quads) for extra grime
+    for (let i = 0; i < 3; i++) {
+      const streak = new THREE.Mesh(new THREE.PlaneGeometry(0.15 + Math.random()*0.2, 0.4 + Math.random()*0.3), M.woodDark);
+      streak.position.set(0.9, 0.55 - i*0.05, -0.3 + i*0.3);
+      streak.rotation.y = Math.PI/2;
+      g.add(streak);
+    }
+
+    g.position.set(x, y0, z);
+    g.rotation.y = rotY;
+    addPropCollider(x, z, 1.3);
+    return g;
+  }
+
+  function buildProps() {
+    if (propsGroup) { scene.remove(propsGroup); propsGroup = null; }
+    worldColliders = worldColliders.filter(c => c.type !== 'prop');
+    propsGroup = new THREE.Group();
+
+    function findSpot(minDistFromCenter) {
+      let attempts = 0;
+      while (attempts < 40) {
+        attempts++;
+        const x = (Math.random()*2-1) * PLAY_HALF;
+        const z = (Math.random()*2-1) * PLAY_HALF;
+        if (isInLake(x, z)) continue;
+        if (Math.sqrt(x*x+z*z) < minDistFromCenter) continue;
+        return { x, z };
+      }
+      return null;
+    }
+
+    const houseSpot = findSpot(10);
+    if (houseSpot) propsGroup.add(makeAbandonedHouse(houseSpot.x, houseSpot.z, Math.random()*Math.PI*2));
+
+    const buildingSpot = findSpot(14);
+    if (buildingSpot) propsGroup.add(makeAbandonedBuilding(buildingSpot.x, buildingSpot.z, Math.random()*Math.PI*2));
+
+    const carCount = 3;
+    for (let i = 0; i < carCount; i++) {
+      const spot = findSpot(6);
+      if (spot) propsGroup.add(makeBrokenCar(spot.x, spot.z, Math.random()*Math.PI*2));
+    }
+
+    scene.add(propsGroup);
   }
 
   // ============================================================
@@ -1825,11 +2199,40 @@
 
   const joystick = { active: false, dx: 0, dy: 0, pointerId: null };
 
+  const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+
   function setupTouchControls() {
     const zone = document.getElementById('joystickZone');
     const thumb = document.getElementById('joystickThumb');
     const jumpBtn = document.getElementById('jumpBtn');
+    const lookZone = document.getElementById('lookZone');
     const maxRadius = 40;
+
+    // ---- First-person look via touch-drag on the right half of the screen.
+    // Pointer Lock (used for desktop mouse-look) needs a real mouse and never
+    // fires on touch devices, so first-person on mobile/tablet uses this
+    // drag-to-look zone instead — same applyLook() as the desktop mouse path.
+    if (isTouchDevice && lookZone) {
+      let touching = false, touchId = null, lastX = 0, lastY = 0;
+      lookZone.addEventListener('pointerdown', (e) => {
+        if (state.cameraView !== 'first') return;
+        touching = true; touchId = e.pointerId;
+        lastX = e.clientX; lastY = e.clientY;
+        lookZone.setPointerCapture(e.pointerId);
+      });
+      lookZone.addEventListener('pointermove', (e) => {
+        if (!touching || e.pointerId !== touchId) return;
+        const dx = e.clientX - lastX, dy = e.clientY - lastY;
+        lastX = e.clientX; lastY = e.clientY;
+        if (typeof applyLookTouch === 'function') applyLookTouch(dx, dy);
+      });
+      function endLook(e) {
+        if (e.pointerId !== touchId) return;
+        touching = false; touchId = null;
+      }
+      lookZone.addEventListener('pointerup', endLook);
+      lookZone.addEventListener('pointercancel', endLook);
+    }
 
     function setThumb(dx, dy) {
       thumb.style.left = (35 + dx) + 'px';
@@ -1862,36 +2265,39 @@
     jumpBtn.addEventListener('pointercancel', (e) => { keys.jump = false; });
   }
 
+  // Shared look function, used by desktop mouse-drag/pointer-lock AND the
+  // mobile touch look-zone (see setupTouchControls) so both paths behave identically.
+  function applyLookTouch(dx, dy) {
+    const sens = state.mouseSensitivity * 0.006;
+    playerCamOrbit.theta -= dx * sens;
+    playerCamOrbit.phi -= dy * sens;
+    if (state.cameraView === 'first') {
+      playerCamOrbit.phi = Math.max(0.05, Math.min(Math.PI - 0.05, playerCamOrbit.phi));
+    } else {
+      playerCamOrbit.phi = Math.max(0.5, Math.min(Math.PI/2 - 0.05, playerCamOrbit.phi));
+    }
+  }
+
   function setupPlayerCameraDrag() {
     const dom = renderer.domElement;
     let dragging = false, lastX = 0, lastY = 0, dragPointerId = null;
-
-    function applyLook(dx, dy) {
-      const sens = state.mouseSensitivity * 0.006;
-      playerCamOrbit.theta -= dx * sens;
-      playerCamOrbit.phi -= dy * sens;
-      // Third-person keeps its original tight orbit range; first-person allows
-      // looking much further up/down (near-vertical) so the player can look at the ground.
-      if (state.cameraView === 'first') {
-        playerCamOrbit.phi = Math.max(0.05, Math.min(Math.PI - 0.05, playerCamOrbit.phi));
-      } else {
-        playerCamOrbit.phi = Math.max(0.5, Math.min(Math.PI/2 - 0.05, playerCamOrbit.phi));
-      }
-    }
+    const applyLook = applyLookTouch;
 
     // ---- Third-person: original click-and-drag behavior, unchanged ----
     dom.addEventListener('pointerdown', (e) => {
-      if (e.target.id === 'joystickZone' || e.target.id === 'joystickThumb' || e.target.id === 'jumpBtn') return;
+      if (e.target.id === 'joystickZone' || e.target.id === 'joystickThumb' || e.target.id === 'jumpBtn' || e.target.id === 'lookZone') return;
       if (state.cameraView === 'first') {
-        // In first-person, a click's job is to (re)acquire pointer lock, not start a drag.
-        if (document.pointerLockElement !== dom) dom.requestPointerLock();
+        // Desktop (mouse): a click's job is to (re)acquire pointer lock, not start a drag.
+        // Touch devices can't use Pointer Lock at all — they look via #lookZone instead
+        // (wired up in setupTouchControls), so skip the request there.
+        if (!isTouchDevice && document.pointerLockElement !== dom) dom.requestPointerLock();
         return;
       }
       dragging = true; dragPointerId = e.pointerId;
       lastX = e.clientX; lastY = e.clientY;
     });
     window.addEventListener('pointermove', (e) => {
-      if (state.cameraView === 'first') return; // handled by the pointer-lock listener below
+      if (state.cameraView === 'first') return; // handled by the pointer-lock listener below, or by the touch look-zone
       if (!dragging || e.pointerId !== dragPointerId) return;
       const dx = e.clientX - lastX, dy = e.clientY - lastY;
       lastX = e.clientX; lastY = e.clientY;
@@ -1906,7 +2312,7 @@
       playerCamOrbit.radius = Math.max(2.5, Math.min(12, playerCamOrbit.radius));
     }, { passive: false });
 
-    // ---- First-person: pointer lock, mouse-look follows movement directly (no held click) ----
+    // ---- First-person on desktop: pointer lock, mouse-look follows movement directly ----
     document.addEventListener('mousemove', (e) => {
       if (document.pointerLockElement !== dom) return;
       applyLook(e.movementX || 0, e.movementY || 0);
@@ -1991,7 +2397,7 @@
       player.rotation.y = player.userData.facingAngle;
     }
 
-    const half = 28;
+    const half = FENCE_HALF;
     player.position.x = Math.max(-half, Math.min(half, player.position.x));
     player.position.z = Math.max(-half, Math.min(half, player.position.z));
 
@@ -2078,7 +2484,23 @@
   // ============================================================
   //  SUN / SHADOW / SKY
   // ============================================================
+  // Maps timeOfDay (0-100, one full day-night loop) to a sun arc:
+  // rises around t=0.1, peaks at t=0.5 (noon), sets around t=0.9,
+  // and dips smoothly below the horizon the rest of the cycle so
+  // night is actually dark instead of just re-tinted daylight.
+  function computeAutoSunAngles(t) {
+    const heightDeg = Math.sin(Math.PI * (t - 0.1) / 0.8) * 85;
+    const angleDeg = (30 + t * 360) % 360;
+    return { heightDeg, angleDeg };
+  }
+
   function updateSunPosition() {
+    if (!state.sunManual) {
+      const t = state.timeOfDay / 100;
+      const auto = computeAutoSunAngles(t);
+      state.sunHeightDeg = auto.heightDeg;
+      state.sunAngleDeg = auto.angleDeg;
+    }
     const heightRad = THREE.MathUtils.degToRad(state.sunHeightDeg);
     const angleRad = THREE.MathUtils.degToRad(state.sunAngleDeg);
     const dist = 40;
@@ -2109,43 +2531,42 @@
     renderer.shadowMap.needsUpdate = true;
   }
 
+  function smoothstep(edge0, edge1, x) {
+    const k = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+    return k * k * (3 - 2 * k);
+  }
+
   function updateFogAndSky() {
-    const t = state.timeOfDay / 100;
-    const dayFactor = Math.max(0, Math.min(1, (t - 0.05) / 0.9));
+    // Driven by the sun's actual elevation (state.sunHeightDeg), not by timeOfDay
+    // directly — heightDeg is continuous and periodic (see computeAutoSunAngles),
+    // so lighting/colors stay continuous through the day->night wrap with no snap,
+    // and manual sun-angle overrides light the scene correctly too.
+    const heightDeg = state.sunHeightDeg;
     const night  = { horizon: new THREE.Color(0x1a2340), mid: new THREE.Color(0x0b1330), zenith: new THREE.Color(0x050a1a) };
     const sunset = { horizon: new THREE.Color(0xff9a5a), mid: new THREE.Color(0xd98a5a), zenith: new THREE.Color(0x5a4a7a) };
     const day    = { horizon: new THREE.Color(0xbcd8ea), mid: new THREE.Color(0x8ec9f0), zenith: new THREE.Color(0x4a90c9) };
 
-    let h, m, z;
-    if (t < 0.15) {
-      const k = t / 0.15;
-      h = night.horizon.clone().lerp(sunset.horizon, k);
-      m = night.mid.clone().lerp(sunset.mid, k);
-      z = night.zenith.clone().lerp(sunset.zenith, k);
-    } else if (t < 0.3) {
-      const k = (t - 0.15) / 0.15;
-      h = sunset.horizon.clone().lerp(day.horizon, k);
-      m = sunset.mid.clone().lerp(day.mid, k);
-      z = sunset.zenith.clone().lerp(day.zenith, k);
-    } else if (t < 0.85) {
-      h = day.horizon.clone(); m = day.mid.clone(); z = day.zenith.clone();
-    } else {
-      const k = (t - 0.85) / 0.15;
-      h = day.horizon.clone().lerp(sunset.horizon, k);
-      m = day.mid.clone().lerp(sunset.mid, k);
-      z = day.zenith.clone().lerp(sunset.zenith, k);
-    }
+    // blend1: night -> sunset as the sun approaches the horizon from below
+    // blend2: sunset -> full day as the sun climbs higher
+    const blend1 = smoothstep(-14, 2, heightDeg);
+    const blend2 = smoothstep(2, 22, heightDeg);
+    const dayFactor = smoothstep(-8, 18, heightDeg); // overall day/night brightness (0=night, 1=day)
+
+    const h = night.horizon.clone().lerp(sunset.horizon, blend1).lerp(day.horizon, blend2);
+    const m = night.mid.clone().lerp(sunset.mid, blend1).lerp(day.mid, blend2);
+    const z = night.zenith.clone().lerp(sunset.zenith, blend1).lerp(day.zenith, blend2);
+    const isTwilight = blend1 > 0.05 && blend2 < 0.95;
 
     if (skyUniforms) {
       skyUniforms.uHorizon.value.copy(h);
       skyUniforms.uMid.value.copy(m);
       skyUniforms.uZenith.value.copy(z);
-      const sunTint = (t < 0.3 || t > 0.85) ? new THREE.Color(0xffd9a0) : new THREE.Color(0xfff0cc);
+      const sunTint = isTwilight ? new THREE.Color(0xffd9a0) : new THREE.Color(0xfff0cc);
       skyUniforms.uSunTint.value.copy(sunTint);
     }
 
     if (!fogRef) {
-      fogRef = new THREE.Fog(h.getHex(), 30, 90);
+      fogRef = new THREE.Fog(h.getHex(), 55, 170);
       scene.fog = fogRef;
     } else {
       fogRef.color.copy(h);
@@ -2158,11 +2579,11 @@
     sun.intensity     = baseSun  * (0.5 + 0.5 * ss);
     hemi.intensity    = baseHemi * (1.2 - 0.2 * ss);
     ambient.intensity = baseAmb  * (1.2 - 0.2 * ss);
-    sun.color.set(t < 0.3 || t > 0.85 ? 0xffb37a : 0xfff2d6);
+    sun.color.set(isTwilight ? 0xffb37a : 0xfff2d6);
 
     if (sunMesh && sunGlowMesh) {
       const dayBright = 1.6 + dayFactor * 1.6;
-      if (t < 0.3 || t > 0.85) {
+      if (isTwilight) {
         sunMesh.material.color.setRGB(dayBright * 1.15, dayBright * 0.85, dayBright * 0.55);
         sunGlowMesh.material.color.setRGB(dayBright * 0.95, dayBright * 0.7, dayBright * 0.4);
       } else {
@@ -2170,8 +2591,8 @@
         sunGlowMesh.material.color.setRGB(dayBright * 0.85, dayBright * 0.8, dayBright * 0.6);
       }
       const visibility = Math.max(0.05, dayFactor);
-      sunMesh.visible = true;
-      sunGlowMesh.visible = true;
+      sunMesh.visible = heightDeg > -3;
+      sunGlowMesh.visible = heightDeg > -3;
       sunGlowMesh.material.opacity = 0.35 * visibility + 0.10;
     }
 
@@ -2214,11 +2635,17 @@
     $('toggleFirstPerson').addEventListener('change', e => {
       state.cameraView = e.target.checked ? 'first' : 'third';
       const hint = document.getElementById('hudLookHint');
+      const lookZone = document.getElementById('lookZone');
       if (hint) {
-        hint.innerHTML = state.cameraView === 'first'
-          ? '<b>Klik layar</b>: kunci mouse, lalu gerakkan untuk menoleh'
-          : '<b>Drag layar</b>: putar kamera';
+        if (state.cameraView === 'first') {
+          hint.innerHTML = isTouchDevice
+            ? '<b>Geser sisi kanan layar</b>: menoleh'
+            : '<b>Klik layar</b>: kunci mouse, lalu gerakkan untuk menoleh';
+        } else {
+          hint.innerHTML = '<b>Drag layar</b>: putar kamera';
+        }
       }
+      if (lookZone) lookZone.style.display = (state.cameraView === 'first' && isTouchDevice) ? 'block' : 'none';
       // Re-sync orbit so third-person doesn't snap oddly when switching back
       if (state.cameraView === 'third') {
         player.traverse(obj => { if (obj.isMesh) obj.visible = true; });
@@ -2302,6 +2729,19 @@
       $('shadowSoftVal').textContent = state.shadowSoftness;
       updateShadowQuality();
     });
+    $('toggleSunManual').addEventListener('change', e => {
+      state.sunManual = e.target.checked;
+      $('sunHeight').disabled = !state.sunManual;
+      $('sunAngle').disabled = !state.sunManual;
+      if (state.sunManual) {
+        // Seed the sliders with whatever the auto sun was showing, so flipping
+        // to manual doesn't cause a jump — the user picks up from where it was.
+        $('sunHeight').value = state.sunHeightDeg;
+        $('sunAngle').value = state.sunAngleDeg;
+        $('sunHeightVal').textContent = Math.round(state.sunHeightDeg) + '°';
+        $('sunAngleVal').textContent = Math.round(state.sunAngleDeg) + '°';
+      }
+    });
     $('sunHeight').addEventListener('input', e => {
       state.sunHeightDeg = parseFloat(e.target.value);
       $('sunHeightVal').textContent = Math.round(state.sunHeightDeg) + '°';
@@ -2371,10 +2811,22 @@
     });
     $('grassPatches').addEventListener('change', () => rebuildGrass());
 
+    $('toggleAutoTime').addEventListener('change', e => {
+      state.autoTimeOn = e.target.checked;
+    });
+    $('timeSpeed').addEventListener('input', e => {
+      state.timeSpeed = parseFloat(e.target.value);
+      $('timeSpeedVal').textContent = state.timeSpeed.toFixed(1);
+    });
     $('timeOfDay').addEventListener('input', e => {
+      // A manual drag on this slider takes over from the auto-cycle immediately
+      // (and unchecks the toggle) so the user's chosen time actually sticks.
+      state.autoTimeOn = false;
+      $('toggleAutoTime').checked = false;
       state.timeOfDay = parseFloat(e.target.value);
       const t = state.timeOfDay;
       $('timeOfDayVal').textContent = t < 20 ? 'Malam' : t < 35 ? 'Senja' : t < 85 ? 'Siang' : 'Sore';
+      updateSunPosition();
       updateFogAndSky();
     });
   }
@@ -2406,6 +2858,36 @@
     }
   }
 
+  function updateAutoTime(dt) {
+    if (state.autoTimeOn) {
+      const inc = dt * (100 / DAY_CYCLE_SECONDS) * state.timeSpeed;
+      state.timeOfDay = (state.timeOfDay + inc) % 100;
+      if (state.timeOfDay < 0) state.timeOfDay += 100;
+    }
+    updateSunPosition();
+    updateFogAndSky();
+
+    // Keep the panel's readouts in sync whether time is auto-advancing or the
+    // sun is under manual control, so the slider never drifts from reality.
+    const tSlider = document.getElementById('timeOfDay');
+    const tVal = document.getElementById('timeOfDayVal');
+    if (tSlider && document.activeElement !== tSlider) tSlider.value = state.timeOfDay;
+    if (tVal) {
+      const td = state.timeOfDay;
+      tVal.textContent = td < 20 ? 'Malam' : td < 35 ? 'Senja' : td < 85 ? 'Siang' : 'Sore';
+    }
+    if (!state.sunManual) {
+      const hVal = document.getElementById('sunHeightVal');
+      const aVal = document.getElementById('sunAngleVal');
+      const hSlider = document.getElementById('sunHeight');
+      const aSlider = document.getElementById('sunAngle');
+      if (hVal) hVal.textContent = Math.round(state.sunHeightDeg) + '°';
+      if (aVal) aVal.textContent = Math.round(state.sunAngleDeg) + '°';
+      if (hSlider) hSlider.value = state.sunHeightDeg;
+      if (aSlider) aSlider.value = state.sunAngleDeg;
+    }
+  }
+
   function animate() {
     requestAnimationFrame(animate);
     const dt = Math.min(clock.getDelta(), 0.05);
@@ -2415,6 +2897,7 @@
     windUniforms.uTime.value = elapsedTime;
 
     updatePlayer(dt);
+    updateAutoTime(dt);
     updateGodraysSun();
     updateFPS(dt);
 
